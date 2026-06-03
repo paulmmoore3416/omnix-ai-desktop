@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=OMNIX AI Desktop Assistant
+Comment=Your God Mode AI Desktop Assistant
+Exec=/home/paul/omnix/dude
+Icon=/home/paul/omnix/static/favicon.png
+Terminal=false
+Categories=Utility;Development;
+StartupNotify=true
+X-GNOME-Autostart-enabled=true
