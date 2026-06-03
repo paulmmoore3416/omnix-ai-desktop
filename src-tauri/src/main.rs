@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::sync::Mutex;
-use sysinfo::{System, SystemExt, CpuExt, ProcessExt};
+use sysinfo::System;
 use once_cell::sync::Lazy;
 use tauri::Manager;
 
@@ -300,7 +300,7 @@ async fn get_system_info() -> Result<serde_json::Value, String> {
 
 fn main() {
     // Performance: Initialize system info at startup
-    let _ = SYSTEM.lock();
+    drop(SYSTEM.lock());
     
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())

@@ -240,11 +240,8 @@
   <!-- UI Enhancement: Notification system -->
   <div class="fixed top-4 right-4 z-50 space-y-2">
     {#each notifications as notification (notification.id)}
-      <div 
-        class="glass-panel px-4 py-3 min-w-64 animate-slide-in"
-        class:bg-blue-500/20={notification.type === 'info'}
-        class:bg-green-500/20={notification.type === 'success'}
-        class:bg-red-500/20={notification.type === 'error'}
+      <div
+        class="glass-panel px-4 py-3 min-w-64 animate-slide-in {notification.type === 'info' ? 'bg-blue-500/20' : notification.type === 'success' ? 'bg-green-500/20' : 'bg-red-500/20'}"
       >
         <div class="flex items-center gap-2">
           <span class="text-xl">
