@@ -2,6 +2,9 @@
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import Avatar from '$lib/components/Avatar.svelte';
+  import SettingsView from '$lib/components/SettingsView.svelte';
+  import KnowledgeView from '$lib/components/KnowledgeView.svelte';
+  import SystemControlView from '$lib/components/SystemControlView.svelte';
   
   let currentView = $state('home');
   let userInput = $state('');
@@ -416,6 +419,21 @@
             <p class="text-gray-400 text-center py-8">No commands executed yet</p>
           {/if}
         </div>
+      </div>
+    {:else if currentView === 'settings'}
+      <!-- Settings View -->
+      <div class="flex-1 overflow-hidden animate-fade-in">
+        <SettingsView />
+      </div>
+    {:else if currentView === 'knowledge'}
+      <!-- Knowledge View -->
+      <div class="flex-1 overflow-hidden animate-fade-in">
+        <KnowledgeView />
+      </div>
+    {:else if currentView === 'system'}
+      <!-- System Control View -->
+      <div class="flex-1 overflow-hidden animate-fade-in">
+        <SystemControlView />
       </div>
     {:else}
       <!-- Other views placeholder -->
