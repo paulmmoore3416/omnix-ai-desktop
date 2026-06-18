@@ -519,7 +519,7 @@ fn get_default_settings() -> Settings {
         },
         memresort: MemResortSettings {
             enabled: false,
-            host: "192.168.1.169".to_string(),
+            host: "localhost".to_string(),
             port: 8080,
             auto_connect: false,
         },

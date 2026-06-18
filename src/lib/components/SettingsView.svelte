@@ -66,7 +66,7 @@
     },
     memresort: {
       enabled: false,
-      host: '192.168.1.169',
+      host: 'localhost',
       port: 8080,
       autoConnect: false
     },
@@ -497,7 +497,7 @@
                 <input
                   type="text"
                   bind:value={settings.memresort.host}
-                  placeholder="192.168.1.169"
+                  placeholder="localhost or IP address"
                   class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2"
                 />
                 <p class="text-xs text-gray-400 mt-1">IP address of the machine running MemResort</p>
