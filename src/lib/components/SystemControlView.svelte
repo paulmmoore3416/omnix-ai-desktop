@@ -143,15 +143,21 @@
   }
   
   function startMonitoring() {
+    // Skip a tick if the previous poll has not finished, so slow backend
+    // calls never pile up.
+    let inFlight = false;
     updateInterval = setInterval(async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         realTimeStats = await call<RealTimeStats>('get_real_time_stats');
-        
         if (activeTab === 'processes') {
           processes = await call<ProcessInfo[]>('get_processes');
         }
       } catch (error) {
         lastError = errorMessage(error);
+      } finally {
+        inFlight = false;
       }
     }, 2000);
   }
@@ -621,8 +627,8 @@
             
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-xs text-gray-400 mb-1">Trigger</label>
-                <select bind:value={newAutomation.trigger} class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm">
+                <label for="sc-field-1" class="block text-xs text-gray-400 mb-1">Trigger</label>
+                <select id="sc-field-1" bind:value={newAutomation.trigger} class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm">
                   {#each triggerTypes as trigger}
                     <option value={trigger.value}>{trigger.label}</option>
                   {/each}
@@ -630,8 +636,8 @@
               </div>
               
               <div>
-                <label class="block text-xs text-gray-400 mb-1">Threshold (%)</label>
-                <input
+                <label for="sc-field-2" class="block text-xs text-gray-400 mb-1">Threshold (%)</label>
+                <input id="sc-field-2"
                   type="number"
                   bind:value={newAutomation.threshold}
                   min="0"
@@ -723,8 +729,8 @@
             />
             
             <div>
-              <label class="block text-xs text-gray-400 mb-1">Schedule (Cron format)</label>
-              <input
+              <label for="sc-field-3" class="block text-xs text-gray-400 mb-1">Schedule (Cron format)</label>
+              <input id="sc-field-3"
                 type="text"
                 bind:value={newScheduledTask.schedule}
                 placeholder="0 0 * * * (daily at midnight)"
@@ -795,8 +801,8 @@
             
             <div class="grid grid-cols-3 gap-3">
               <div>
-                <label class="block text-xs text-gray-400 mb-1">Type</label>
-                <select bind:value={newAlert.type} class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm">
+                <label for="sc-field-4" class="block text-xs text-gray-400 mb-1">Type</label>
+                <select id="sc-field-4" bind:value={newAlert.type} class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm">
                   <option value="cpu">CPU</option>
                   <option value="memory">Memory</option>
                   <option value="disk">Disk</option>
@@ -806,8 +812,8 @@
               </div>
               
               <div>
-                <label class="block text-xs text-gray-400 mb-1">Condition</label>
-                <select bind:value={newAlert.condition} class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm">
+                <label for="sc-field-5" class="block text-xs text-gray-400 mb-1">Condition</label>
+                <select id="sc-field-5" bind:value={newAlert.condition} class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm">
                   <option value="greater_than">Greater than</option>
                   <option value="less_than">Less than</option>
                   <option value="equals">Equals</option>
@@ -815,8 +821,8 @@
               </div>
               
               <div>
-                <label class="block text-xs text-gray-400 mb-1">Threshold</label>
-                <input
+                <label for="sc-field-6" class="block text-xs text-gray-400 mb-1">Threshold</label>
+                <input id="sc-field-6"
                   type="number"
                   bind:value={newAlert.threshold}
                   class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm"
@@ -825,8 +831,8 @@
             </div>
             
             <div>
-              <label class="block text-xs text-gray-400 mb-1">Action</label>
-              <select bind:value={newAlert.action} class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm">
+              <label for="sc-field-7" class="block text-xs text-gray-400 mb-1">Action</label>
+              <select id="sc-field-7" bind:value={newAlert.action} class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm">
                 <option value="notify">Send Notification</option>
                 <option value="email">Send Email</option>
                 <option value="webhook">Call Webhook</option>

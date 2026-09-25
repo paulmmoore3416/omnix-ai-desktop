@@ -12,7 +12,6 @@ use crate::security::executor::{self, ExecRequest, ExecResult};
 use crate::security::files;
 use crate::security::policy::Source;
 use crate::state::AppState;
-use crate::system::metrics;
 use tauri::{AppHandle, State};
 
 /// Handle one line of chat input and return the assistant's reply text.
@@ -95,11 +94,12 @@ async fn file_op(app: &AppHandle, state: &AppState, rest: &str) -> AppResult<Str
 }
 
 fn monitor(state: &AppState) -> AppResult<String> {
-    let mut sys = state.system()?;
-    let s = metrics::status(&mut sys)?;
-    let total = sys.total_memory() as f64 / 1_073_741_824.0;
-    let used = sys.used_memory() as f64 / 1_073_741_824.0;
-    let top = crate::system::processes::list(&mut sys);
+    let mut m = state.monitor()?;
+    let s = m.status()?;
+    let info = m.info()?;
+    let total = info.total_memory as f64 / 1_073_741_824.0;
+    let used = info.used_memory as f64 / 1_073_741_824.0;
+    let top = crate::system::processes::list(&mut m);
     let mut out = format!(
         "System status\n• CPU: {:.1}%\n• Memory: {:.1}% ({used:.2} / {total:.2} GiB)\n• Uptime: {} h\n• Processes: {}\n\nTop processes by CPU:\n",
         s.cpu,

@@ -348,8 +348,8 @@
             
             <div class="grid grid-cols-3 gap-3">
               <div>
-                <label class="block text-xs text-gray-400 mb-1">Tags (comma-separated)</label>
-                <input
+                <label for="kv-field-1" class="block text-xs text-gray-400 mb-1">Tags (comma-separated)</label>
+                <input id="kv-field-1"
                   type="text"
                   bind:value={newMemory.tags}
                   placeholder="work, important"
@@ -358,8 +358,8 @@
               </div>
               
               <div>
-                <label class="block text-xs text-gray-400 mb-1">Category</label>
-                <select bind:value={newMemory.category} class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm">
+                <label for="kv-field-2" class="block text-xs text-gray-400 mb-1">Category</label>
+                <select id="kv-field-2" bind:value={newMemory.category} class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm">
                   {#each categories as category}
                     <option value={category}>{category}</option>
                   {/each}
@@ -367,8 +367,8 @@
               </div>
               
               <div>
-                <label class="block text-xs text-gray-400 mb-1">Importance (1-10)</label>
-                <input
+                <label for="kv-field-3" class="block text-xs text-gray-400 mb-1">Importance (1-10)</label>
+                <input id="kv-field-3"
                   type="number"
                   bind:value={newMemory.importance}
                   min="1"

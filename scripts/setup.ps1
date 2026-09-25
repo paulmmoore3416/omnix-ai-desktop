@@ -11,7 +11,7 @@ try {
     Write-Host "✅ Node.js $nodeVersion detected" -ForegroundColor Green
 } catch {
     Write-Host "❌ Node.js is not installed." -ForegroundColor Red
-    Write-Host "   Please install Node.js 18+ from: https://nodejs.org/" -ForegroundColor Yellow
+    Write-Host "   Please install Node.js 22+ (24 LTS recommended) from: https://nodejs.org/" -ForegroundColor Yellow
     exit 1
 }
 
@@ -52,10 +52,10 @@ if (Test-Path $webview2Path) {
     Write-Host "✅ WebView2 Runtime installed" -ForegroundColor Green
 }
 
-# Install npm dependencies
+# Install npm dependencies (includes the Tauri CLI, @tauri-apps/cli)
 Write-Host ""
 Write-Host "📦 Installing npm dependencies..." -ForegroundColor Yellow
-npm install
+npm ci
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "❌ Failed to install npm dependencies" -ForegroundColor Red
@@ -63,11 +63,6 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "✅ npm dependencies installed" -ForegroundColor Green
-
-# Install Tauri CLI
-Write-Host ""
-Write-Host "🦀 Installing Tauri CLI..." -ForegroundColor Yellow
-cargo install tauri-cli --version "^2.0.0"
 
 Write-Host ""
 Write-Host "✅ Setup complete!" -ForegroundColor Green
@@ -80,4 +75,3 @@ Write-Host "   npm run tauri build" -ForegroundColor White
 Write-Host ""
 Write-Host "📚 For more information, see README.md" -ForegroundColor Cyan
 
-# Made with Bob

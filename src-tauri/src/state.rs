@@ -8,10 +8,10 @@ use crate::security::audit::AuditLog;
 use crate::security::policy::PolicyConfig;
 use crate::security::secrets::{KeyringStore, SecretStore};
 use crate::settings::{self, Settings};
+use crate::system::metrics::Monitor;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use sysinfo::System;
 use tauri::{AppHandle, Manager, Runtime};
 
 /// Shared state for all commands.
@@ -27,9 +27,9 @@ pub struct AppState {
     pub audit: AuditLog,
     /// Single shared HTTP client (connection pooling, consistent timeouts).
     pub http: reqwest::Client,
-    /// sysinfo handle. A std mutex is fine: refreshes are short and never
-    /// held across `.await`.
-    pub system: Mutex<System>,
+    /// sysinfo state. A std mutex is fine: refreshes are short and the guard
+    /// is never held across `.await`.
+    pub monitor: Mutex<Monitor>,
     /// OS keychain (trait object so tests can substitute a memory store).
     pub secrets: Arc<dyn SecretStore>,
     /// User home directory.
@@ -57,17 +57,13 @@ impl AppState {
             .build()
             .map_err(|e| AppError::Internal(format!("HTTP client: {e}")))?;
 
-        let mut system = System::new();
-        system.refresh_cpu();
-        system.refresh_memory();
-
         Ok(Self {
             settings: tokio::sync::RwLock::new(settings),
             settings_write: tokio::sync::Mutex::new(()),
             settings_path,
             audit,
             http,
-            system: Mutex::new(system),
+            monitor: Mutex::new(Monitor::new()),
             secrets,
             home: dirs::home_dir(),
         })
@@ -93,9 +89,9 @@ impl AppState {
         }
     }
 
-    /// Lock sysinfo, mapping a poisoned mutex to an error instead of panicking.
-    pub fn system(&self) -> AppResult<std::sync::MutexGuard<'_, System>> {
-        self.system
+    /// Lock the system monitor, mapping a poisoned mutex to an error instead of panicking.
+    pub fn monitor(&self) -> AppResult<std::sync::MutexGuard<'_, Monitor>> {
+        self.monitor
             .lock()
             .map_err(|_| AppError::Internal("system info lock poisoned".into()))
     }

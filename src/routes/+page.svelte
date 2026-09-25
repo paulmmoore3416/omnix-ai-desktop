@@ -26,6 +26,17 @@
   let isTyping = $state(false);
   let typingTimeout: ReturnType<typeof setTimeout> | undefined;
 
+  // Short-lived UI timers (notifications, avatar emotions) are tracked and
+  // cancelled on unmount so nothing fires against a destroyed component.
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  function later(fn: () => void, ms: number) {
+    const t = setTimeout(() => {
+      timers.delete(t);
+      fn();
+    }, ms);
+    timers.add(t);
+  }
+
   // Performance: Debounced input handler
   function handleInputChange(value: string) {
     userInput = value;
@@ -65,7 +76,7 @@
     const id = Date.now();
     notifications = [...notifications, { id, message, type }];
     
-    setTimeout(() => {
+    later(() => {
       notifications = notifications.filter(n => n.id !== id);
     }, 5000);
   }
@@ -103,6 +114,8 @@
       alive = false;
       clearTimeout(statusTimer);
       clearTimeout(typingTimeout);
+      timers.forEach(clearTimeout);
+      timers.clear();
     };
   });
 
@@ -145,9 +158,9 @@
 
       avatarEmotion = 'success';
       
-      setTimeout(() => {
+      later(() => {
         avatarEmotion = 'happy';
-        setTimeout(() => avatarEmotion = 'idle', 2000);
+        later(() => (avatarEmotion = 'idle'), 2000);
       }, 1000);
       
     } catch (error) {
@@ -161,7 +174,7 @@
       avatarEmotion = 'error';
       addNotification(msg, 'error');
       
-      setTimeout(() => avatarEmotion = 'idle', 3000);
+      later(() => (avatarEmotion = 'idle'), 3000);
     } finally {
       isProcessing = false;
       isSpeaking = false;
@@ -201,7 +214,8 @@
 
   $effect(() => {
     if (messages.length > 0) {
-      setTimeout(scrollToBottom, 100);
+      const t = setTimeout(scrollToBottom, 100);
+      return () => clearTimeout(t);
     }
   });
 </script>

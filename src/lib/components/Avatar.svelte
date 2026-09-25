@@ -1,5 +1,27 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+
+  // Every timer is tracked so unmounting the avatar cancels all of them
+  // (the animation schedules many short-lived timeouts and intervals).
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  const intervals = new Set<ReturnType<typeof setInterval>>();
+  function later(fn: () => void, ms: number) {
+    const t = setTimeout(() => {
+      timers.delete(t);
+      fn();
+    }, ms);
+    timers.add(t);
+    return t;
+  }
+  function every(fn: () => void, ms: number) {
+    const t = setInterval(fn, ms);
+    intervals.add(t);
+    return t;
+  }
+  function stop(t: ReturnType<typeof setInterval>) {
+    clearInterval(t);
+    intervals.delete(t);
+  }
   
   let { 
     emotion = 'idle' as 'idle' | 'thinking' | 'speaking' | 'working' | 'happy' | 'excited' | 'focused' | 'confused' | 'success' | 'error' | 'listening' | 'processing',
@@ -178,7 +200,7 @@
       // Natural blinking
       if (now - blinkTimer > 3000 + Math.random() * 2000) {
         eyeState = 'blink';
-        setTimeout(() => {
+        later(() => {
           eyeState = emotion === 'happy' || emotion === 'excited' ? 'happy' : 
                      emotion === 'focused' ? 'focused' :
                      emotion === 'confused' ? 'confused' : 'open';
@@ -204,20 +226,20 @@
           jetpackThrust = 1;
           
           // Schedule sputtering events
-          const sputterInterval = setInterval(() => {
+          const sputterInterval = every(() => {
             if (currentActivity === 'flying') {
               jetpackSputtering = true;
               jetpackThrust = 0.3;
-              setTimeout(() => {
+              later(() => {
                 jetpackSputtering = false;
                 jetpackThrust = 1;
               }, 300 + Math.random() * 400);
             } else {
-              clearInterval(sputterInterval);
+              stop(sputterInterval);
             }
           }, 1500 + Math.random() * 2000);
           
-          setTimeout(() => {
+          later(() => {
             if (currentActivity === 'flying') {
               isFlying = false;
               currentActivity = 'idle';
@@ -226,7 +248,7 @@
           }, 5000);
         } else {
           currentActivity = randomActivity;
-          setTimeout(() => {
+          later(() => {
             if (currentActivity === randomActivity) currentActivity = 'idle';
           }, 2500);
         }
@@ -319,7 +341,7 @@
             jumpOffset = 0;
             jumpVelocity = -15;
             bodySquash = 0.9;
-            setTimeout(() => bodySquash = 1, 100);
+            later(() => bodySquash = 1, 100);
           }
           bodySquash = 1 + (jumpOffset / 100) * 0.1;
           break;
@@ -385,7 +407,7 @@
             currentActivity = 'jumping';
             jumpVelocity = -15;
             spawnParticles(8, currentTheme.glow);
-            setTimeout(() => {
+            later(() => {
               if (currentActivity === 'jumping') currentActivity = 'idle';
             }, 2000);
           }
@@ -395,7 +417,7 @@
           if (currentActivity === 'idle') {
             currentActivity = 'dancing';
             spawnParticles(5, currentTheme.glow);
-            setTimeout(() => {
+            later(() => {
               if (currentActivity === 'dancing') currentActivity = 'idle';
             }, 3000);
           }
@@ -419,6 +441,10 @@
     
     return () => {
       if (animationFrame) cancelAnimationFrame(animationFrame);
+      timers.forEach(clearTimeout);
+      timers.clear();
+      intervals.forEach(clearInterval);
+      intervals.clear();
     };
   });
 </script>
