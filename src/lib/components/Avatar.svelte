@@ -24,7 +24,8 @@
   let isWalking = $state(false);
   let walkCycle = $state(0);
   let facingDirection = $state<'left' | 'right'>('right');
-  let currentActivity = $state<'idle' | 'walking' | 'jumping' | 'waving' | 'dancing' | 'working' | 'thinking' | 'flying'>('idle');
+  type Activity = 'idle' | 'walking' | 'jumping' | 'waving' | 'dancing' | 'working' | 'thinking' | 'flying';
+  let currentActivity = $state<Activity>('idle');
   let jumpOffset = $state(0);
   let isFlying = $state(false);
   let jetpackThrust = $state(1);
@@ -187,8 +188,8 @@
       
       // Activity management
       if (now - lastActivityChange > 6000 && !isWorking && !isSpeaking && currentActivity === 'idle') {
-        const activities: typeof currentActivity[] = ['walking', 'waving', 'dancing', 'flying'];
-        const randomActivity = activities[Math.floor(Math.random() * activities.length)];
+        const activities: Activity[] = ['walking', 'waving', 'dancing', 'flying'];
+        const randomActivity: Activity = activities[Math.floor(Math.random() * activities.length)];
         
         if (randomActivity === 'walking') {
           targetX = 25 + Math.random() * 50;

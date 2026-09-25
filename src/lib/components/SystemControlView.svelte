@@ -1,38 +1,25 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { call, errorMessage, unavailable } from '$lib/api';
+  import type { ProcessInfo, RealTimeStats, SystemControlData, SystemInfo } from '$lib/types';
   
   let activeTab = $state('overview');
   let isProcessing = $state(false);
+  let available = $state(false);
+  let lastError = $state('');
   
-  let systemInfo = $state({
-    os: '',
-    kernel: '',
-    hostname: '',
-    uptime: 0,
-    bootTime: new Date(),
-    cpuModel: '',
-    cpuCores: 0,
-    totalMemory: 0,
-    totalSwap: 0
-  });
+  let systemInfo = $state<SystemInfo | null>(null);
   
-  let realTimeStats = $state({
+  let realTimeStats = $state<RealTimeStats>({
     cpu: 0,
     memory: 0,
     swap: 0,
-    disk: 0,
-    network: { rx: 0, tx: 0 },
-    temperature: 0
+    disk: null,
+    network: null,
+    temperature: null
   });
   
-  let processes = $state<Array<{
-    pid: number;
-    name: string;
-    cpu: number;
-    memory: number;
-    status: string;
-  }>>([]);
+  let processes = $state<ProcessInfo[]>([]);
   
   let services = $state<Array<{
     name: string;
@@ -89,7 +76,7 @@
     action: 'notify'
   });
   
-  let updateInterval: number;
+  let updateInterval: ReturnType<typeof setInterval> | undefined;
   let processFilter = $state('');
   let sortBy = $state<'cpu' | 'memory' | 'name'>('cpu');
   
@@ -128,26 +115,19 @@
   
   async function loadSystemInfo() {
     try {
-      const info = await invoke('get_system_info');
-      systemInfo = { ...systemInfo, ...info as typeof systemInfo };
+      systemInfo = await call<SystemInfo>('get_system_info');
     } catch (error) {
-      console.error('Failed to load system info:', error);
+      lastError = errorMessage(error);
     }
   }
   
   async function loadData() {
     try {
-      const data = await invoke('get_system_control_data');
-      const parsed = data as {
-        processes: typeof processes;
-        services: typeof services;
-        automations: typeof automations;
-        scheduledTasks: typeof scheduledTasks;
-        alerts: typeof alerts;
-      };
+      const parsed = await call<SystemControlData>('get_system_control_data');
+      available = parsed.available;
       
       processes = parsed.processes || [];
-      services = parsed.services || [];
+      services = (parsed.services || []) as typeof services;
       automations = (parsed.automations || []).map((a: any) => ({
         ...a,
         lastRun: a.lastRun ? new Date(a.lastRun) : null
@@ -156,46 +136,43 @@
         ...t,
         nextRun: new Date(t.nextRun)
       }));
-      alerts = parsed.alerts || [];
+      alerts = (parsed.alerts || []) as typeof alerts;
     } catch (error) {
-      console.error('Failed to load system control data:', error);
+      lastError = errorMessage(error);
     }
   }
   
   function startMonitoring() {
     updateInterval = setInterval(async () => {
       try {
-        const stats = await invoke('get_real_time_stats');
-        realTimeStats = { ...realTimeStats, ...stats as typeof realTimeStats };
+        realTimeStats = await call<RealTimeStats>('get_real_time_stats');
         
         if (activeTab === 'processes') {
-          const procs = await invoke('get_processes');
-          processes = procs as typeof processes;
+          processes = await call<ProcessInfo[]>('get_processes');
         }
       } catch (error) {
-        console.error('Failed to update stats:', error);
+        lastError = errorMessage(error);
       }
     }, 2000);
   }
   
   async function killProcess(pid: number) {
-    if (!confirm(`Are you sure you want to kill process ${pid}?`)) return;
-    
+    // Confirmation happens in a native dialog raised by the backend.
     try {
-      await invoke('kill_process', { pid });
-      await loadData();
+      await call('kill_process', { pid });
+      processes = await call<ProcessInfo[]>('get_processes');
     } catch (error) {
-      console.error('Failed to kill process:', error);
+      lastError = errorMessage(error);
     }
   }
   
   async function toggleService(name: string) {
     isProcessing = true;
     try {
-      await invoke('toggle_service', { name });
+      await call('toggle_service', { name });
       await loadData();
     } catch (error) {
-      console.error('Failed to toggle service:', error);
+      lastError = errorMessage(error);
     } finally {
       isProcessing = false;
     }
@@ -206,7 +183,7 @@
     
     isProcessing = true;
     try {
-      await invoke('create_automation', {
+      await call('create_automation', {
         name: newAutomation.name,
         trigger: newAutomation.trigger,
         action: newAutomation.action,
@@ -216,7 +193,7 @@
       newAutomation = { name: '', trigger: 'cpu_high', action: '', threshold: 80 };
       await loadData();
     } catch (error) {
-      console.error('Failed to create automation:', error);
+      lastError = errorMessage(error);
     } finally {
       isProcessing = false;
     }
@@ -224,10 +201,10 @@
   
   async function toggleAutomation(id: string) {
     try {
-      await invoke('toggle_automation', { id });
+      await call('toggle_automation', { id });
       await loadData();
     } catch (error) {
-      console.error('Failed to toggle automation:', error);
+      lastError = errorMessage(error);
     }
   }
   
@@ -235,10 +212,10 @@
     if (!confirm('Are you sure you want to delete this automation?')) return;
     
     try {
-      await invoke('delete_automation', { id });
+      await call('delete_automation', { id });
       await loadData();
     } catch (error) {
-      console.error('Failed to delete automation:', error);
+      lastError = errorMessage(error);
     }
   }
   
@@ -247,7 +224,7 @@
     
     isProcessing = true;
     try {
-      await invoke('create_scheduled_task', {
+      await call('create_scheduled_task', {
         name: newScheduledTask.name,
         schedule: newScheduledTask.schedule,
         command: newScheduledTask.command
@@ -256,7 +233,7 @@
       newScheduledTask = { name: '', schedule: '0 0 * * *', command: '' };
       await loadData();
     } catch (error) {
-      console.error('Failed to create scheduled task:', error);
+      lastError = errorMessage(error);
     } finally {
       isProcessing = false;
     }
@@ -264,17 +241,17 @@
   
   async function toggleScheduledTask(id: string) {
     try {
-      await invoke('toggle_scheduled_task', { id });
+      await call('toggle_scheduled_task', { id });
       await loadData();
     } catch (error) {
-      console.error('Failed to toggle scheduled task:', error);
+      lastError = errorMessage(error);
     }
   }
   
   async function createAlert() {
     isProcessing = true;
     try {
-      await invoke('create_alert', {
+      await call('create_alert', {
         type: newAlert.type,
         condition: newAlert.condition,
         threshold: newAlert.threshold,
@@ -284,7 +261,7 @@
       newAlert = { type: 'cpu', condition: 'greater_than', threshold: 80, action: 'notify' };
       await loadData();
     } catch (error) {
-      console.error('Failed to create alert:', error);
+      lastError = errorMessage(error);
     } finally {
       isProcessing = false;
     }
@@ -292,34 +269,32 @@
   
   async function toggleAlert(id: string) {
     try {
-      await invoke('toggle_alert', { id });
+      await call('toggle_alert', { id });
       await loadData();
     } catch (error) {
-      console.error('Failed to toggle alert:', error);
+      lastError = errorMessage(error);
     }
   }
   
   async function runSystemCleanup() {
-    if (!confirm('Run system cleanup? This will clear temporary files and caches.')) return;
     
     isProcessing = true;
     try {
-      await invoke('run_system_cleanup');
+      await call('run_system_cleanup');
     } catch (error) {
-      console.error('Cleanup failed:', error);
+      lastError = errorMessage(error);
     } finally {
       isProcessing = false;
     }
   }
   
   async function optimizeSystem() {
-    if (!confirm('Optimize system performance? This may restart some services.')) return;
     
     isProcessing = true;
     try {
-      await invoke('optimize_system');
+      await call('optimize_system');
     } catch (error) {
-      console.error('Optimization failed:', error);
+      lastError = errorMessage(error);
     } finally {
       isProcessing = false;
     }
@@ -370,14 +345,16 @@
     <div class="flex gap-2">
       <button
         onclick={runSystemCleanup}
-        disabled={isProcessing}
+        disabled={isProcessing || unavailable('run_system_cleanup')}
+        title={unavailable('run_system_cleanup') ? 'Not yet available' : undefined}
         class="glass-panel px-4 py-2 hover:bg-white/10 transition-all text-sm disabled:opacity-50"
       >
         🧹 Cleanup
       </button>
       <button
         onclick={optimizeSystem}
-        disabled={isProcessing}
+        disabled={isProcessing || unavailable('optimize_system')}
+        title={unavailable('optimize_system') ? 'Not yet available' : undefined}
         class="glass-panel px-4 py-2 hover:bg-white/10 transition-all text-sm disabled:opacity-50"
       >
         ⚡ Optimize
@@ -385,6 +362,16 @@
     </div>
   </div>
   
+  {#if !available}
+    <div class="glass-panel p-3 mb-4 bg-yellow-500/10 border border-yellow-500/30 text-sm text-gray-300">
+      <span class="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded mr-2">Not yet available</span>
+      Services, automations, the scheduler, alerts, cleanup and optimization are not implemented yet. Monitoring and ending processes work.
+    </div>
+  {/if}
+  {#if lastError}
+    <div class="glass-panel p-3 mb-4 bg-red-500/20 text-sm" role="alert">{lastError}</div>
+  {/if}
+
   <div class="flex-1 flex gap-4 overflow-hidden">
     <!-- Tabs Sidebar -->
     <div class="w-48 glass-panel p-4 space-y-2">
@@ -413,19 +400,19 @@
               <div class="space-y-2 text-sm">
                 <div class="flex justify-between">
                   <span class="text-gray-400">OS:</span>
-                  <span>{systemInfo.os || 'Loading...'}</span>
+                  <span>{systemInfo?.os ?? 'Loading...'}</span>
                 </div>
                 <div class="flex justify-between">
                   <span class="text-gray-400">Kernel:</span>
-                  <span>{systemInfo.kernel || 'Loading...'}</span>
+                  <span>{systemInfo?.kernel ?? 'Loading...'}</span>
                 </div>
                 <div class="flex justify-between">
                   <span class="text-gray-400">Hostname:</span>
-                  <span>{systemInfo.hostname || 'Loading...'}</span>
+                  <span>{systemInfo?.hostname ?? 'Loading...'}</span>
                 </div>
                 <div class="flex justify-between">
                   <span class="text-gray-400">Uptime:</span>
-                  <span>{formatUptime(systemInfo.uptime)}</span>
+                  <span>{formatUptime(systemInfo?.uptime ?? 0)}</span>
                 </div>
               </div>
             </div>
@@ -435,19 +422,19 @@
               <div class="space-y-2 text-sm">
                 <div class="flex justify-between">
                   <span class="text-gray-400">CPU:</span>
-                  <span>{systemInfo.cpuModel || 'Loading...'}</span>
+                  <span>{systemInfo?.cpu_model ?? 'Loading...'}</span>
                 </div>
                 <div class="flex justify-between">
                   <span class="text-gray-400">Cores:</span>
-                  <span>{systemInfo.cpuCores}</span>
+                  <span>{systemInfo?.cpu_cores ?? 0}</span>
                 </div>
                 <div class="flex justify-between">
                   <span class="text-gray-400">Memory:</span>
-                  <span>{formatBytes(systemInfo.totalMemory)}</span>
+                  <span>{formatBytes(systemInfo?.total_memory ?? 0)}</span>
                 </div>
                 <div class="flex justify-between">
                   <span class="text-gray-400">Swap:</span>
-                  <span>{formatBytes(systemInfo.totalSwap)}</span>
+                  <span>{formatBytes(systemInfo?.total_swap ?? 0)}</span>
                 </div>
               </div>
             </div>
@@ -479,22 +466,22 @@
             
             <div class="glass-panel p-4 bg-white/5">
               <div class="text-xs text-gray-400 mb-2">Disk Usage</div>
-              <div class="text-3xl font-bold text-yellow-400 mb-2">{realTimeStats.disk.toFixed(1)}%</div>
+              <div class="text-3xl font-bold text-yellow-400 mb-2">{realTimeStats.disk === null ? 'n/a' : `${realTimeStats.disk.toFixed(1)}%`}</div>
               <div class="w-full h-2 bg-white/10 rounded-full overflow-hidden">
                 <div 
                   class="h-full bg-yellow-400 transition-all duration-500"
-                  style="width: {realTimeStats.disk}%"
+                  style="width: {realTimeStats.disk ?? 0}%"
                 ></div>
               </div>
             </div>
             
             <div class="glass-panel p-4 bg-white/5">
               <div class="text-xs text-gray-400 mb-2">Temperature</div>
-              <div class="text-3xl font-bold text-red-400 mb-2">{realTimeStats.temperature.toFixed(0)}°C</div>
+              <div class="text-3xl font-bold text-red-400 mb-2">{realTimeStats.temperature === null ? 'n/a' : `${realTimeStats.temperature.toFixed(0)}°C`}</div>
               <div class="w-full h-2 bg-white/10 rounded-full overflow-hidden">
                 <div 
                   class="h-full bg-red-400 transition-all duration-500"
-                  style="width: {(realTimeStats.temperature / 100) * 100}%"
+                  style="width: {Math.min(realTimeStats.temperature ?? 0, 100)}%"
                 ></div>
               </div>
             </div>
@@ -506,11 +493,11 @@
             <div class="grid grid-cols-2 gap-4">
               <div>
                 <div class="text-xs text-gray-400 mb-1">Download</div>
-                <div class="text-2xl font-bold text-green-400">↓ {formatBytes(realTimeStats.network.rx)}/s</div>
+                <div class="text-2xl font-bold text-green-400">↓ {realTimeStats.network ? `${formatBytes(realTimeStats.network.rx)}/s` : 'n/a'}</div>
               </div>
               <div>
                 <div class="text-xs text-gray-400 mb-1">Upload</div>
-                <div class="text-2xl font-bold text-blue-400">↑ {formatBytes(realTimeStats.network.tx)}/s</div>
+                <div class="text-2xl font-bold text-blue-400">↑ {realTimeStats.network ? `${formatBytes(realTimeStats.network.tx)}/s` : 'n/a'}</div>
               </div>
             </div>
           </div>
@@ -592,7 +579,7 @@
                   </div>
                   <button
                     onclick={() => toggleService(service.name)}
-                    disabled={isProcessing}
+                    disabled={isProcessing || unavailable('toggle_service')}
                     class="ml-3 px-3 py-1 rounded text-xs {service.status === 'running' ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'} hover:opacity-80 transition-all disabled:opacity-50"
                   >
                     {service.status === 'running' ? '⏸ Stop' : '▶ Start'}
@@ -663,7 +650,8 @@
             
             <button
               onclick={createAutomation}
-              disabled={isProcessing || !newAutomation.name.trim()}
+              disabled={isProcessing || !newAutomation.name.trim() || unavailable('create_automation')}
+              title={unavailable('create_automation') ? 'Not yet available' : undefined}
               class="w-full px-4 py-2 bg-cosmic-blue hover:bg-cosmic-cyan text-white rounded-lg font-medium transition-all disabled:opacity-50"
             >
               {isProcessing ? '⏳ Creating...' : '➕ Create Automation'}
@@ -688,12 +676,14 @@
                   <div class="flex items-center gap-2 ml-3">
                     <button
                       onclick={() => toggleAutomation(automation.id)}
+                      disabled={unavailable('toggle_automation')}
                       class="text-xs px-3 py-1 rounded {automation.enabled ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'} hover:opacity-80"
                     >
                       {automation.enabled ? '✓ Enabled' : '○ Disabled'}
                     </button>
                     <button
                       onclick={() => deleteAutomation(automation.id)}
+                      disabled={unavailable('delete_automation')}
                       class="text-red-400 hover:text-red-300"
                     >
                       🗑️
@@ -752,7 +742,8 @@
             
             <button
               onclick={createScheduledTask}
-              disabled={isProcessing || !newScheduledTask.name.trim()}
+              disabled={isProcessing || !newScheduledTask.name.trim() || unavailable('create_scheduled_task')}
+              title={unavailable('create_scheduled_task') ? 'Not yet available' : undefined}
               class="w-full px-4 py-2 bg-cosmic-blue hover:bg-cosmic-cyan text-white rounded-lg font-medium transition-all disabled:opacity-50"
             >
               {isProcessing ? '⏳ Creating...' : '➕ Schedule Task'}
@@ -772,6 +763,7 @@
                   
                   <button
                     onclick={() => toggleScheduledTask(task.id)}
+                    disabled={unavailable('toggle_scheduled_task')}
                     class="ml-3 text-xs px-3 py-1 rounded {task.enabled ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'} hover:opacity-80"
                   >
                     {task.enabled ? '✓ Enabled' : '○ Disabled'}
@@ -844,7 +836,8 @@
             
             <button
               onclick={createAlert}
-              disabled={isProcessing}
+              disabled={isProcessing || unavailable('create_alert')}
+              title={unavailable('create_alert') ? 'Not yet available' : undefined}
               class="w-full px-4 py-2 bg-cosmic-blue hover:bg-cosmic-cyan text-white rounded-lg font-medium transition-all disabled:opacity-50"
             >
               {isProcessing ? '⏳ Creating...' : '➕ Create Alert'}
@@ -870,6 +863,7 @@
                   
                   <button
                     onclick={() => toggleAlert(alert.id)}
+                    disabled={unavailable('toggle_alert')}
                     class="text-xs px-3 py-1 rounded {alert.enabled ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'} hover:opacity-80"
                   >
                     {alert.enabled ? '✓ Active' : '○ Inactive'}
