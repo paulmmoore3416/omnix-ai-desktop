@@ -11,6 +11,7 @@
 
 pub mod ai;
 pub mod commands;
+pub mod desktop;
 pub mod error;
 pub mod security;
 pub mod settings;
@@ -35,9 +36,22 @@ pub fn run() {
     tauri::Builder::default()
         // Dialogs are raised from Rust only; the webview has no dialog permissions.
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|app| {
             let state = state::AppState::init(app.handle())?;
+            let auto_start = tauri::async_runtime::block_on(state.settings.read())
+                .general
+                .auto_start;
             app.manage(state);
+
+            // Keep the OS launch-at-login entry in sync with settings. A
+            // failure here is logged, not fatal (e.g. read-only home).
+            if let Err(e) = desktop::apply_autostart(app.handle(), auto_start) {
+                tracing::warn!(error = %e, "could not apply auto_start setting");
+            }
 
             // Devtools only in debug builds; release builds never expose them.
             #[cfg(debug_assertions)]
@@ -64,6 +78,7 @@ pub fn run() {
             commands::settings::delete_secret,
             commands::settings::has_secret,
             commands::settings::test_ai_model,
+            commands::settings::list_ollama_models,
             commands::settings::test_memresort_connection,
             commands::settings::test_integration,
             // Knowledge

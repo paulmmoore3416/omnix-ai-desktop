@@ -232,6 +232,22 @@ pub async fn test_ai_model(state: State<'_, AppState>, config: AiSettings) -> Ap
     ))
 }
 
+/// Models installed on the Ollama server (`GET /api/tags`). Model ids are
+/// always discovered at runtime; none are hardcoded. `host` defaults to the
+/// saved `ai.ollama_host` (pass the unsaved value from the form to preview).
+#[tauri::command]
+pub async fn list_ollama_models(
+    state: State<'_, AppState>,
+    host: Option<String>,
+) -> AppResult<Vec<String>> {
+    let settings = state.settings.read().await.clone();
+    let host = host
+        .filter(|h| !h.trim().is_empty())
+        .unwrap_or(settings.ai.ollama_host);
+    endpoint::ensure_endpoint_allowed(&host, settings.security.local_only).await?;
+    ollama::list_models(&state.http, &host).await
+}
+
 /// Check that a MemResort server answers `GET /v1/models`.
 #[tauri::command]
 pub async fn test_memresort_connection(
@@ -342,6 +358,9 @@ async fn apply<R: Runtime>(
     let to_save = new.clone();
     tokio::task::spawn_blocking(move || store::save(&path, &to_save)).await??;
     *state.settings.write().await = new.clone();
+    if current.general.auto_start != new.general.auto_start {
+        crate::desktop::apply_autostart(app, new.general.auto_start)?;
+    }
     Ok(new)
 }
 
