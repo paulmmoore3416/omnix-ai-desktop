@@ -14,28 +14,60 @@ pub mod ai;
 pub mod commands;
 pub mod desktop;
 pub mod error;
+pub mod mcp;
 pub mod memory;
+pub mod observability;
 pub mod security;
 pub mod settings;
 pub mod state;
 pub mod system;
+pub mod voice;
 
 use tauri::Manager;
 
-/// Initialise `tracing` (stderr). Honors `RUST_LOG`; defaults to `info`.
-fn init_tracing() {
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
-    // `try_init` fails only if a subscriber is already set (e.g. in tests).
-    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
+/// App logging: stdout plus a rotating `omnix.log` in the app log directory.
+/// This is operational logging, deliberately separate from the hash-chained
+/// `audit.jsonl`. `tracing` events reach it through tracing's `log` bridge.
+/// No webview target: the frontend has no log permissions.
+fn log_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    use tauri_plugin_log::{RotationStrategy, Target, TargetKind};
+    tauri_plugin_log::Builder::new()
+        .clear_targets()
+        .targets([
+            Target::new(TargetKind::Stdout),
+            Target::new(TargetKind::LogDir {
+                file_name: Some("omnix".into()),
+            }),
+        ])
+        .level(if cfg!(debug_assertions) {
+            log::LevelFilter::Debug
+        } else {
+            log::LevelFilter::Info
+        })
+        // Dependencies are noisy at debug level.
+        .level_for("hyper_util", log::LevelFilter::Info)
+        .level_for("rustls", log::LevelFilter::Info)
+        .level_for("tao", log::LevelFilter::Info)
+        .level_for("zbus", log::LevelFilter::Warn)
+        .level_for("tracing::span", log::LevelFilter::Warn)
+        .level_for("keyring_core", log::LevelFilter::Info)
+        .level_for("rustls_platform_verifier", log::LevelFilter::Info)
+        .max_file_size(5 * 1024 * 1024)
+        .rotation_strategy(RotationStrategy::KeepSome(5))
+        .build()
 }
 
 /// Build and run the Tauri application.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    init_tracing();
-
     tauri::Builder::default()
+        // Must be first: a second launch focuses the running instance instead.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            desktop::show_main(app);
+        }))
+        .plugin(log_plugin())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         // Dialogs are raised from Rust only; the webview has no dialog permissions.
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
@@ -54,6 +86,20 @@ pub fn run() {
             if let Err(e) = desktop::apply_autostart(app.handle(), auto_start) {
                 tracing::warn!(error = %e, "could not apply auto_start setting");
             }
+            if let Err(e) = desktop::setup_tray(app.handle()) {
+                tracing::warn!(error = %e, "could not create tray icon");
+            }
+            desktop::setup_shortcuts(app.handle());
+            desktop::setup_microphone(app.handle());
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let state = handle.state::<state::AppState>();
+                if let Err(e) = observability::configure(&state).await {
+                    tracing::warn!(error = %e, "audit shipping not enabled");
+                }
+            });
+            // The updater plugin is intentionally NOT registered until release
+            // signing is configured (see docs/ARCHITECTURE.md).
 
             // Devtools only in debug builds; release builds never expose them.
             #[cfg(debug_assertions)]
@@ -61,6 +107,25 @@ pub fn run() {
                 window.open_devtools();
             }
             Ok(())
+        })
+        // Close-to-tray when `general.minimize_to_tray` is on.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let to_tray = window
+                    .app_handle()
+                    .try_state::<state::AppState>()
+                    .and_then(|s| {
+                        s.settings
+                            .try_read()
+                            .ok()
+                            .map(|s| s.general.minimize_to_tray)
+                    })
+                    .unwrap_or(false);
+                if to_tray {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             // Chat
@@ -86,8 +151,8 @@ pub fn run() {
             commands::settings::list_ollama_models,
             commands::settings::list_models,
             commands::settings::test_memory_backend,
+            commands::settings::mcp_test_server,
             commands::settings::test_memresort_connection,
-            commands::settings::test_integration,
             // Knowledge
             commands::knowledge::get_knowledge_data,
             commands::knowledge::save_memory,
@@ -115,6 +180,9 @@ pub fn run() {
             commands::system::toggle_alert,
             commands::system::run_system_cleanup,
             commands::system::optimize_system,
+            // Voice
+            commands::voice::voice_transcribe,
+            commands::voice::voice_speak,
         ])
         .run(tauri::generate_context!())
         // Setup-time failure: nothing to recover to, so exit with a clear message.

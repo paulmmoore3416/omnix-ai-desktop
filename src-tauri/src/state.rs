@@ -40,6 +40,8 @@ pub struct AppState {
     pub conversation: tokio::sync::Mutex<Vec<crate::ai::provider::ChatMessage>>,
     /// Set by `chat_cancel`; checked between stream events and tool calls.
     pub chat_cancel: std::sync::atomic::AtomicBool,
+    /// MCP server connections.
+    pub mcp: crate::mcp::McpManager,
 }
 
 impl AppState {
@@ -74,6 +76,7 @@ impl AppState {
             home: dirs::home_dir(),
             conversation: tokio::sync::Mutex::new(Vec::new()),
             chat_cancel: std::sync::atomic::AtomicBool::new(false),
+            mcp: crate::mcp::McpManager::default(),
         })
     }
 

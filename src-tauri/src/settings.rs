@@ -30,9 +30,10 @@ pub struct Settings {
     pub ai: AiSettings,
     /// Optional MemResort endpoint.
     pub memresort: MemResortSettings,
-    /// Legacy third-party integration toggles (secrets stripped). Replaced by
-    /// MCP servers in a later phase.
-    pub integrations: serde_json::Map<String, Value>,
+    /// MCP servers (replace the old placeholder integrations).
+    pub mcp: McpSettings,
+    /// Optional external log shipping.
+    pub observability: ObservabilitySettings,
     /// Voice input/output (planned).
     pub voice: VoiceSettings,
     /// Long-term memory backend (planned).
@@ -50,13 +51,75 @@ impl Default for Settings {
             general: GeneralSettings::default(),
             ai: AiSettings::default(),
             memresort: MemResortSettings::default(),
-            integrations: serde_json::Map::new(),
+            mcp: McpSettings::default(),
+            observability: ObservabilitySettings::default(),
             voice: VoiceSettings::default(),
             memory: MemorySettings::default(),
             security: SecuritySettings::default(),
             performance: PerformanceSettings::default(),
         }
     }
+}
+
+/// MCP client configuration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct McpSettings {
+    /// Registered servers.
+    pub servers: Vec<McpServerConfig>,
+}
+
+/// One MCP server.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct McpServerConfig {
+    /// Identifier (`[a-z0-9_-]{1,32}`), used to namespace tools.
+    pub name: String,
+    /// Whether the agent may use it.
+    #[serde(default)]
+    pub enabled: bool,
+    /// How to reach it.
+    pub transport: McpTransport,
+    /// Tools the user declares read-only (called without confirmation unless
+    /// `require_confirmation`). Every other tool is treated as Mutating.
+    #[serde(default)]
+    pub read_only_tools: Vec<String>,
+}
+
+/// MCP transport.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum McpTransport {
+    /// Local subprocess speaking MCP over stdio.
+    Stdio {
+        /// Executable.
+        command: String,
+        /// Arguments.
+        #[serde(default)]
+        args: Vec<String>,
+        /// Non-secret environment variables.
+        #[serde(default)]
+        env: std::collections::BTreeMap<String, String>,
+        /// Names of environment variables whose values live in the keychain
+        /// under `mcp.<server>.<NAME>`.
+        #[serde(default)]
+        secret_env: Vec<String>,
+    },
+    /// Remote server speaking streamable HTTP.
+    Http {
+        /// Endpoint URL.
+        url: String,
+        /// Send `Authorization: Bearer` with the keychain secret `mcp.<server>.token`.
+        #[serde(default)]
+        bearer_token: bool,
+    },
+}
+
+/// Optional audit-log shipping.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct ObservabilitySettings {
+    /// Grafana Loki base URL (e.g. `http://loki:3100`). Empty = off.
+    pub loki_url: String,
 }
 
 /// General UI preferences.
@@ -172,8 +235,13 @@ impl Default for MemResortSettings {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct VoiceSettings {
-    /// Master switch (off until voice is implemented).
+    /// Master switch.
     pub enabled: bool,
+    /// faster-whisper server base URL (OpenAI-compatible
+    /// `/v1/audio/transcriptions`). Empty = speech input off.
+    pub stt_url: String,
+    /// Piper executable (name on PATH or absolute path).
+    pub piper_path: String,
     /// Whisper model size.
     pub whisper_model: String,
     /// Recognition language.
@@ -192,6 +260,8 @@ impl Default for VoiceSettings {
     fn default() -> Self {
         Self {
             enabled: false,
+            stt_url: String::new(),
+            piper_path: "piper".into(),
             whisper_model: "base".into(),
             language: "en".into(),
             tts_engine: "piper".into(),
@@ -340,6 +410,70 @@ impl Settings {
                 _ => return bad("memory.backend_url must be an http(s) URL"),
             }
         }
+        for (label, url) in [
+            ("observability.loki_url", &self.observability.loki_url),
+            ("voice.stt_url", &self.voice.stt_url),
+        ] {
+            if !url.is_empty() {
+                match reqwest::Url::parse(url) {
+                    Ok(u) if matches!(u.scheme(), "http" | "https") => {}
+                    _ => return bad(&format!("{label} must be an http(s) URL")),
+                }
+            }
+        }
+        if self.voice.piper_path.trim().is_empty() || self.voice.piper_path.contains(['\n', '\0']) {
+            return bad("voice.piper_path must be a program name or path");
+        }
+        if self.voice.tts_voice.contains(['\n', '\0']) || self.voice.tts_voice.starts_with('-') {
+            return bad("voice.tts_voice is invalid");
+        }
+        if self.mcp.servers.len() > 20 {
+            return bad("at most 20 MCP servers");
+        }
+        let mut names = std::collections::HashSet::new();
+        for srv in &self.mcp.servers {
+            let valid = !srv.name.is_empty()
+                && srv.name.len() <= 32
+                && srv
+                    .name
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-');
+            if !valid {
+                return bad("MCP server names must match [a-z0-9_-]{1,32}");
+            }
+            if !names.insert(srv.name.clone()) {
+                return bad("MCP server names must be unique");
+            }
+            match &srv.transport {
+                McpTransport::Stdio {
+                    command,
+                    secret_env,
+                    env,
+                    ..
+                } => {
+                    if command.trim().is_empty() {
+                        return bad("MCP stdio servers need a command");
+                    }
+                    let env_ok = |k: &String| {
+                        !k.is_empty()
+                            && k.len() <= 64
+                            && k.chars()
+                                .next()
+                                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+                            && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                    };
+                    if !secret_env.iter().all(env_ok) || !env.keys().all(env_ok) {
+                        return bad(
+                            "MCP environment variable names must match [A-Za-z_][A-Za-z0-9_]*",
+                        );
+                    }
+                }
+                McpTransport::Http { url, .. } => match reqwest::Url::parse(url) {
+                    Ok(u) if matches!(u.scheme(), "http" | "https") => {}
+                    _ => return bad("MCP HTTP servers need an http(s) URL"),
+                },
+            }
+        }
         if self.ai.cloud_model.len() > 200 {
             return bad("ai.cloud_model is too long");
         }
@@ -444,6 +578,50 @@ impl Settings {
         if self.ai.ollama_host != new.ai.ollama_host {
             out.push(format!("Change Ollama host to {}", new.ai.ollama_host));
         }
+        for srv in &new.mcp.servers {
+            let old = self.mcp.servers.iter().find(|o| o.name == srv.name);
+            let changed = old.is_none_or(|o| o.transport != srv.transport);
+            let newly_enabled = srv.enabled && old.is_none_or(|o| !o.enabled);
+            let ro_added: Vec<&String> = srv
+                .read_only_tools
+                .iter()
+                .filter(|t| old.is_none_or(|o| !o.read_only_tools.contains(t)))
+                .collect();
+            if srv.enabled && (changed || newly_enabled) {
+                let what = match &srv.transport {
+                    McpTransport::Stdio { command, args, .. } => {
+                        format!("run `{} {}`", command, args.join(" "))
+                    }
+                    McpTransport::Http { url, .. } => format!("connect to {url}"),
+                };
+                out.push(format!("Enable MCP server `{}` ({what})", srv.name));
+            }
+            if !ro_added.is_empty() {
+                out.push(format!(
+                    "Let MCP server `{}` run tools without confirmation: {}",
+                    srv.name,
+                    ro_added
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+        }
+        if !new.observability.loki_url.is_empty()
+            && self.observability.loki_url != new.observability.loki_url
+        {
+            out.push(format!(
+                "Ship audit log to Loki at {}",
+                new.observability.loki_url
+            ));
+        }
+        if !new.voice.stt_url.is_empty() && self.voice.stt_url != new.voice.stt_url {
+            out.push(format!("Send recorded audio to {}", new.voice.stt_url));
+        }
+        if self.voice.piper_path != new.voice.piper_path {
+            out.push(format!("Run `{}` for text-to-speech", new.voice.piper_path));
+        }
         if !new.memory.backend_url.is_empty() && self.memory.backend_url != new.memory.backend_url {
             out.push(format!(
                 "Send memories to kb-core at {}",
@@ -461,28 +639,6 @@ impl Settings {
             ));
         }
         out
-    }
-
-    /// Remove secret-bearing fields from legacy integration entries. Tokens,
-    /// API keys and webhook URLs (which embed credentials) must never be
-    /// persisted in plaintext.
-    pub fn sanitize(&mut self) {
-        const SECRET_FIELDS: &[&str] = &[
-            "token",
-            "apiKey",
-            "api_key",
-            "apiToken",
-            "api_token",
-            "webhookUrl",
-            "webhook_url",
-        ];
-        for service in self.integrations.values_mut() {
-            if let Some(obj) = service.as_object_mut() {
-                for f in SECRET_FIELDS {
-                    obj.remove(*f);
-                }
-            }
-        }
     }
 
     /// Recompute `has_*_key` flags from the keychain. Keychain errors are
