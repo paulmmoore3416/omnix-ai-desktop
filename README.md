@@ -21,7 +21,8 @@
 
 | Area | Status |
 |------|--------|
-| Chat with a local Ollama model | ✅ |
+| Streaming chat with Ollama (local), rendered as sanitized Markdown | ✅ |
+| AI tool use: the model can list/read files and run commands, **through the same policy engine and approval dialogs** | ✅ (Ollama models with tool support; others answer without tools) |
 | `/execute` shell commands, risk-classified, with native approval for anything that changes the system | ✅ |
 | `/file read`, `/file list`, `/file write` (writes need approval, credential files are off-limits) | ✅ |
 | `/monitor` and the System Control view (CPU, memory, swap, disk, network, temperature, processes, ending a process) | ✅ |
@@ -30,9 +31,9 @@
 | Hash-chained, redacted audit log with a **Verify** button | ✅ |
 | Local-only mode (blocks cloud providers and non-local endpoints) | ✅ on by default |
 | Settings export/import (never includes secrets) | ✅ |
-| Cloud providers (OpenAI, Anthropic, Gemini, xAI) | 🚧 planned: keys can be stored; chat is not wired yet |
+| Cloud providers (Anthropic, OpenAI, Gemini, xAI) with streaming + tools | ✅ when local-only mode is turned off; keys in the OS keychain |
 | Voice input/output (push-to-talk) | 🚧 planned |
-| Persistent memory / knowledge base | 🚧 planned |
+| Long-term memory (save, search, index documents) via an external kb-core service | ✅ when configured ([contract](docs/kb-core-contract.md)); knowledge-base management, export/import planned |
 | Services, automations, scheduler, alerts, cleanup | 🚧 planned: controls are disabled in the UI |
 | Integrations (GitHub, Drive, …) | 🚧 planned: will be MCP servers |
 
@@ -88,7 +89,7 @@ Then open **Settings → AI Models**, pick the model from the list (OMNIX reads 
 /monitor
 ```
 
-Anything that doesn't start with `/` is sent to your Ollama model.
+Anything that doesn't start with `/` goes to the configured model. Responses stream in the **Conversation** view. The model may use tools (list/read files, run commands, search memory), and anything that would change your system still opens an approval dialog labelled *proposed by the AI assistant*. By default it gets one round of tool calls per message; **Settings → Security → autonomous mode** raises that (off by default).
 
 ---
 
@@ -154,7 +155,7 @@ cargo clippy --all-targets -- -D warnings
 
 - **Frontend:** SvelteKit 5, TypeScript, Tailwind CSS
 - **Backend:** Tauri 2, Rust (tokio, reqwest, sysinfo, keyring, tracing)
-- **AI:** Ollama (local)
+- **AI:** Ollama (local), Anthropic Messages API, OpenAI-compatible APIs; custom agent loop (no framework)
 
 ---
 
