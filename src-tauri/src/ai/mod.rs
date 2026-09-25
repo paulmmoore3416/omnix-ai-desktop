@@ -8,6 +8,8 @@
 //! * [`agent`]: the tool-using agent loop.
 
 pub mod agent;
+#[cfg(feature = "aiorc")]
+pub mod aiorc;
 pub mod anthropic;
 pub mod context;
 pub mod endpoint;

@@ -1,6 +1,5 @@
 //! Settings, secrets and connection-test commands.
 
-use super::not_implemented;
 use crate::ai::{endpoint, ollama};
 
 use crate::error::{AppError, AppResult};
@@ -60,7 +59,6 @@ pub async fn export_settings(
     export.ai.has_anthropic_key = false;
     export.ai.has_gemini_key = false;
     export.ai.has_xai_key = false;
-    export.sanitize();
     let json = serde_json::to_string_pretty(&export)?;
 
     let dialog_app = app.clone();
@@ -259,6 +257,16 @@ pub async fn list_ollama_models(
     ollama::list_models(&state.http, &host).await
 }
 
+/// Connect to an MCP server (confirming a stdio start) and list its tools.
+#[tauri::command]
+pub async fn mcp_test_server(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    name: String,
+) -> AppResult<crate::mcp::ServerStatus> {
+    state.mcp.test(&app, &state, &name).await
+}
+
 /// Check that a MemResort server answers `GET /v1/models`.
 #[tauri::command]
 pub async fn test_memresort_connection(
@@ -295,12 +303,6 @@ pub async fn test_memresort_connection(
     }
 }
 
-/// Not implemented: legacy integration tests (to be replaced by MCP servers).
-#[tauri::command]
-pub async fn test_integration() -> AppResult<String> {
-    not_implemented("integration connection tests")
-}
-
 /// Shared save path for save/reset/import.
 async fn apply<R: Runtime>(
     app: &AppHandle<R>,
@@ -318,7 +320,6 @@ async fn apply<R: Runtime>(
     new.ai.has_anthropic_key = current.ai.has_anthropic_key;
     new.ai.has_gemini_key = current.ai.has_gemini_key;
     new.ai.has_xai_key = current.ai.has_xai_key;
-    new.sanitize();
 
     let changes = current.security_changes(&new);
     if !changes.is_empty() {
@@ -369,6 +370,13 @@ async fn apply<R: Runtime>(
     let to_save = new.clone();
     tokio::task::spawn_blocking(move || store::save(&path, &to_save)).await??;
     *state.settings.write().await = new.clone();
+    if current.observability != new.observability {
+        crate::observability::configure(state).await?;
+    }
+    if current.mcp != new.mcp {
+        // Reconnect with the new configuration on next use.
+        state.mcp.disconnect_all().await;
+    }
     if current.general.auto_start != new.general.auto_start {
         crate::desktop::apply_autostart(app, new.general.auto_start)?;
     }

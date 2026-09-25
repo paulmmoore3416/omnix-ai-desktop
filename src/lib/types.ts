@@ -39,9 +39,12 @@ export interface Settings {
     port: number;
     auto_connect: boolean;
   };
-  integrations: Record<string, unknown>;
+  mcp: { servers: McpServerConfig[] };
+  observability: { loki_url: string };
   voice: {
     enabled: boolean;
+    stt_url: string;
+    piper_path: string;
     whisper_model: string;
     language: string;
     tts_engine: string;
@@ -81,6 +84,22 @@ export interface Settings {
   };
 }
 
+/** Mirrors `settings::McpServerConfig`. */
+export interface McpServerConfig {
+  name: string;
+  enabled: boolean;
+  transport:
+    | { type: 'stdio'; command: string; args: string[]; env: Record<string, string>; secret_env: string[] }
+    | { type: 'http'; url: string; bearer_token: boolean };
+  read_only_tools: string[];
+}
+
+/** Mirrors `mcp::ServerStatus`. */
+export interface McpServerStatus {
+  name: string;
+  tools: string[];
+}
+
 /** Provider ids accepted by `set_secret` / `delete_secret` / `has_secret`. */
 export type SecretProvider =
   | 'openai'
@@ -91,7 +110,8 @@ export type SecretProvider =
   | 'google_drive'
   | 'jira'
   | 'notion'
-  | 'kb_core';
+  | 'kb_core'
+  | `mcp.${string}.${string}`;
 
 /** Mirrors `security::executor::ExecResult`. */
 export interface ExecResult {

@@ -48,15 +48,37 @@ pub trait SecretStore: Send + Sync {
     }
 }
 
-/// Validate a provider id against [`PROVIDERS`].
+/// Validate a provider id against [`PROVIDERS`] or the MCP secret pattern
+/// `mcp.<server>.<NAME>` (server `[a-z0-9_-]{1,32}`, name an env-var name or
+/// `token`).
 pub fn validate_provider(provider: &str) -> AppResult<()> {
-    if PROVIDERS.contains(&provider) {
+    if PROVIDERS.contains(&provider) || is_mcp_secret_id(provider) {
         Ok(())
     } else {
         Err(AppError::InvalidInput(format!(
             "unknown secret provider `{provider}`"
         )))
     }
+}
+
+fn is_mcp_secret_id(id: &str) -> bool {
+    let mut parts = id.splitn(3, '.');
+    let (Some("mcp"), Some(server), Some(name)) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    let server_ok = !server.is_empty()
+        && server.len() <= 32
+        && server
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-');
+    let name_ok = !name.is_empty()
+        && name.len() <= 64
+        && name
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    server_ok && name_ok
 }
 
 /// Validate a secret value (non-empty, bounded, single line).
@@ -243,6 +265,11 @@ mod tests {
     fn rejects_unknown_providers_and_bad_values() {
         let s = MemoryStore::default();
         assert!(s.set("evil", "x").is_err());
+        assert!(s.set("mcp.github.GITHUB_TOKEN", "x").is_ok());
+        assert!(s.set("mcp.github.token", "x").is_ok());
+        assert!(s.set("mcp.../x", "x").is_err());
+        assert!(s.set("mcp.GitHub.X", "x").is_err());
+        assert!(s.set("mcp.a.b.c", "x").is_err());
         assert!(s.set("openai", "").is_err());
         assert!(s.set("openai", "a\nb").is_err());
         assert!(s.set("openai", &"x".repeat(MAX_SECRET_LEN + 1)).is_err());

@@ -274,7 +274,7 @@ fn shell_command(raw: &str) -> (String, Vec<String>) {
 }
 
 /// Minimal child environment (see [`SAFE_ENV`]).
-fn safe_env() -> Vec<(String, std::ffi::OsString)> {
+pub fn safe_env() -> Vec<(String, std::ffi::OsString)> {
     #[cfg(windows)]
     let names = SAFE_ENV.iter().chain(SAFE_ENV_WINDOWS.iter());
     #[cfg(not(windows))]
@@ -321,12 +321,29 @@ pub async fn run_process(
     timeout: Duration,
     cap: usize,
 ) -> AppResult<ProcessOutput> {
+    run_process_with_input(program, args, cwd, timeout, cap, None).await
+}
+
+/// [`run_process`] that also writes `input` to the child's stdin (then
+/// closes it). Used for fixed-argv internal tools such as Piper TTS.
+pub async fn run_process_with_input(
+    program: &str,
+    args: &[String],
+    cwd: &Path,
+    timeout: Duration,
+    cap: usize,
+    input: Option<Vec<u8>>,
+) -> AppResult<ProcessOutput> {
     let mut cmd = tokio::process::Command::new(program);
     cmd.args(args)
         .current_dir(cwd)
         .env_clear()
         .envs(safe_env())
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
@@ -337,6 +354,14 @@ pub async fn run_process(
         .spawn()
         .map_err(|e| AppError::Execution(format!("failed to start `{program}`: {e}")))?;
     let pid = child.id();
+    if let (Some(data), Some(mut stdin)) = (input, child.stdin.take()) {
+        // Write concurrently so a child that fills its stdout pipe before
+        // reading all input cannot deadlock us. Dropping `stdin` closes it.
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            let _ = stdin.write_all(&data).await;
+        });
+    }
     let out = child.stdout.take();
     let err = child.stderr.take();
 
@@ -474,6 +499,21 @@ mod tests {
         .await;
         assert!(matches!(r, Err(AppError::Execution(_))));
         assert!(start.elapsed() < Duration::from_secs(5));
+    }
+
+    #[tokio::test]
+    async fn stdin_input_is_delivered() {
+        let o = run_process_with_input(
+            "/bin/cat",
+            &[],
+            &tmp(),
+            Duration::from_secs(5),
+            1024,
+            Some(b"hello".to_vec()),
+        )
+        .await
+        .expect("run");
+        assert_eq!(o.stdout, "hello");
     }
 
     #[tokio::test]

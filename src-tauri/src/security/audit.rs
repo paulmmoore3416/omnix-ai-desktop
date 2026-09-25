@@ -138,6 +138,9 @@ pub struct AuditLog {
     /// Serializes appends and remembers the hash of the last line so every
     /// write does not have to re-read the file.
     last_hash: tokio::sync::Mutex<String>,
+    /// Optional external sink (Loki shipper). Receives the exact, already
+    /// redacted line after it is durably written locally.
+    sink: std::sync::Mutex<Option<tokio::sync::mpsc::Sender<String>>>,
 }
 
 impl AuditLog {
@@ -153,6 +156,7 @@ impl AuditLog {
         Ok(Self {
             path,
             last_hash: tokio::sync::Mutex::new(last_hash),
+            sink: std::sync::Mutex::new(None),
         })
     }
 
@@ -188,7 +192,22 @@ impl AuditLog {
             .await
             .map_err(|e| AppError::Internal(format!("audit writer task failed: {e}")))??;
         *last = sha256_hex(line.as_bytes());
+        if let Ok(guard) = self.sink.lock() {
+            if let Some(tx) = guard.as_ref() {
+                // Never block auditing on the network: drop if the queue is full.
+                if tx.try_send(line).is_err() {
+                    tracing::warn!("audit shipping queue full or closed; line not shipped");
+                }
+            }
+        }
         Ok(())
+    }
+
+    /// Install or remove the external sink.
+    pub fn set_sink(&self, sink: Option<tokio::sync::mpsc::Sender<String>>) {
+        if let Ok(mut guard) = self.sink.lock() {
+            *guard = sink;
+        }
     }
 }
 
