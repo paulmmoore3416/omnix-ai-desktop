@@ -3,6 +3,7 @@
   import { call, errorMessage } from '$lib/api';
   import type { Settings, VerifyReport } from '$lib/types';
   import SecretField from './SecretField.svelte';
+  import McpServers from './McpServers.svelte';
 
   let activeTab = $state('general');
   let settings = $state<Settings | null>(null);
@@ -13,13 +14,12 @@
   let statusTimer: ReturnType<typeof setTimeout> | undefined;
   let models = $state<string[]>([]);
   let modelsError = $state('');
-  let kbTokenSaved = $state(false);
 
   const tabs = [
     { id: 'general', label: 'General', icon: '⚙️' },
     { id: 'ai', label: 'AI Models', icon: '🤖' },
     { id: 'memresort', label: 'MemResort', icon: '🏰' },
-    { id: 'integrations', label: 'Integrations', icon: '🔌' },
+    { id: 'integrations', label: 'MCP Servers', icon: '🔌' },
     { id: 'voice', label: 'Voice', icon: '🎤' },
     { id: 'memory', label: 'Memory', icon: '🧠' },
     { id: 'security', label: 'Security', icon: '🔒' },
@@ -40,7 +40,6 @@
     try {
       settings = await call<Settings>('load_settings');
       loadError = '';
-      kbTokenSaved = await call<boolean>('has_secret', { provider: 'kb_core' }).catch(() => false);
       await refreshModels();
     } catch (e) {
       loadError = errorMessage(e);
@@ -387,32 +386,58 @@
 
         {:else if activeTab === 'integrations'}
           <div class="space-y-6">
-            <h3 class="text-xl font-bold text-cosmic-cyan mb-4">External Integrations <span class="text-xs align-middle bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded">Not yet available</span></h3>
-            <div class="glass-panel p-4 bg-white/5 text-sm text-gray-300 space-y-2">
-              <p>The GitHub, Google Drive, Slack, Discord, Jira and Notion toggles were placeholders that never connected to anything, so they have been removed.</p>
-              <p>Integrations will return as <strong>MCP servers</strong> that you register here. Every tool they expose will go through the same policy engine, confirmation dialogs and audit log as local commands.</p>
-            </div>
+            <h3 class="text-xl font-bold text-cosmic-cyan mb-4">MCP Servers</h3>
+            <McpServers bind:servers={settings.mcp.servers} />
           </div>
 
         {:else if activeTab === 'voice'}
           <div class="space-y-6">
-            <h3 class="text-xl font-bold text-cosmic-cyan mb-4">Voice Configuration <span class="text-xs align-middle bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded">Planned</span></h3>
-            <div class="glass-panel p-4 bg-white/5 text-sm text-gray-300">Voice input/output is not implemented yet. These preferences are stored for when it lands; push-to-talk will be the only mode.</div>
-            <fieldset disabled class="space-y-4 opacity-50">
+            <h3 class="text-xl font-bold text-cosmic-cyan mb-4">Voice</h3>
+            <div class="glass-panel p-4 bg-white/5 text-sm text-gray-300">
+              Push-to-talk only: hold the mic button (or <kbd>Ctrl</kbd>+<kbd>Space</kbd>) to record. Speech-to-text uses a faster-whisper server with an OpenAI-compatible <code>/v1/audio/transcriptions</code> endpoint; text-to-speech runs Piper locally.
+            </div>
+            <div class="space-y-4">
+              <label class="flex items-center justify-between">
+                <span class="text-sm font-medium">Enable voice input/output</span>
+                <input type="checkbox" bind:checked={settings.voice.enabled} class="w-5 h-5" />
+              </label>
               <div>
-                <label for="whisper" class="block text-sm font-medium mb-2">Whisper Model</label>
-                <select id="whisper" bind:value={settings.voice.whisper_model} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2">
-                  <option value="tiny">Tiny (Fastest)</option>
-                  <option value="base">Base (Balanced)</option>
-                  <option value="small">Small (Better)</option>
-                  <option value="medium">Medium (Best)</option>
-                </select>
+                <label for="stt-url" class="block text-sm font-medium mb-2">Speech-to-text server URL</label>
+                <input id="stt-url" type="text" bind:value={settings.voice.stt_url} placeholder="http://localhost:8000 or http://whisper.tailnet:8000" class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+                <p class="text-xs text-gray-400 mt-1">Recorded audio is sent only here (local-only mode requires a local/private address).</p>
               </div>
-              <div>
-                <label for="tts-voice" class="block text-sm font-medium mb-2">Piper Voice</label>
-                <input id="tts-voice" type="text" bind:value={settings.voice.tts_voice} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label for="whisper" class="block text-sm font-medium mb-2">Whisper model</label>
+                  <input id="whisper" type="text" bind:value={settings.voice.whisper_model} placeholder="base" class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+                </div>
+                <div>
+                  <label for="voice-lang" class="block text-sm font-medium mb-2">Language</label>
+                  <select id="voice-lang" bind:value={settings.voice.language} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2">
+                    <option value="en">English</option>
+                    <option value="es">Spanish</option>
+                    <option value="fr">French</option>
+                    <option value="de">German</option>
+                    <option value="ja">Japanese</option>
+                    <option value="zh">Chinese</option>
+                  </select>
+                </div>
               </div>
-            </fieldset>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label for="piper-path" class="block text-sm font-medium mb-2">Piper program</label>
+                  <input id="piper-path" type="text" bind:value={settings.voice.piper_path} placeholder="piper" class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 font-mono" />
+                </div>
+                <div>
+                  <label for="tts-voice" class="block text-sm font-medium mb-2">Piper voice / model</label>
+                  <input id="tts-voice" type="text" bind:value={settings.voice.tts_voice} placeholder="en_US-lessac-medium" class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 font-mono" />
+                </div>
+              </div>
+              <div class="flex items-center justify-between opacity-60">
+                <span class="text-sm">Continuous listening</span>
+                <span class="text-xs text-gray-400">Not offered (push-to-talk only)</span>
+              </div>
+            </div>
           </div>
 
         {:else if activeTab === 'memory'}
@@ -431,7 +456,7 @@
                 <label for="kb-url" class="block text-sm font-medium mb-2">kb-core URL</label>
                 <input id="kb-url" type="text" bind:value={settings.memory.backend_url} placeholder="http://localhost:8000 (empty = disabled)" class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
               </div>
-              <SecretField provider="kb_core" label="kb-core bearer token (optional)" placeholder="token" has={kbTokenSaved} onchange={async (s) => { settings = s; kbTokenSaved = await call<boolean>('has_secret', { provider: 'kb_core' }).catch(() => false); }} />
+              <SecretField provider="kb_core" label="kb-core bearer token (optional)" placeholder="token" />
               <div>
                 <label for="retention" class="block text-sm font-medium mb-2">Retention Period (days) <span class="text-xs text-yellow-300">planned</span></label>
                 <input id="retention" type="number" bind:value={settings.memory.retention_days} disabled class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 opacity-50" />
@@ -494,6 +519,21 @@
                   class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 font-mono text-sm"
                 ></textarea>
                 <p class="text-xs text-gray-400 mt-1">When set, only commands starting with one of these prefixes can run.</p>
+              </div>
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Autonomous agent mode <span class="block text-xs text-gray-400 font-normal">Let the AI chain several rounds of tool calls per message (each change still needs your approval)</span></span>
+                <input type="checkbox" bind:checked={settings.security.autonomous_mode} class="w-5 h-5" />
+              </label>
+              {#if settings.security.autonomous_mode}
+                <div>
+                  <label for="max-steps" class="block text-sm font-medium mb-2">Max tool rounds per message</label>
+                  <input id="max-steps" type="number" bind:value={settings.security.max_autonomous_steps} min="1" max="50" class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+                </div>
+              {/if}
+              <div>
+                <label for="loki" class="block text-sm font-medium mb-2">Ship audit log to Loki (optional)</label>
+                <input id="loki" type="text" bind:value={settings.observability.loki_url} placeholder="http://loki:3100 (empty = off)" class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+                <p class="text-xs text-gray-400 mt-1">Sends the already-redacted audit lines; anchors the hash chain off-machine.</p>
               </div>
               <div class="grid grid-cols-2 gap-4">
                 <div>

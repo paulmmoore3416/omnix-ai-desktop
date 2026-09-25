@@ -3,6 +3,7 @@
    * Write-only secret input. The stored value is never read back from the
    * backend; the component only knows whether a secret exists (`has`).
    */
+  import { onMount } from 'svelte';
   import { call, errorMessage } from '$lib/api';
   import type { SecretProvider, Settings } from '$lib/types';
 
@@ -10,15 +11,25 @@
     provider,
     label,
     placeholder = '',
-    has = false,
+    has,
     onchange
   }: {
     provider: SecretProvider;
     label: string;
     placeholder?: string;
+    /** Whether a secret exists; when omitted the keychain is queried. */
     has?: boolean;
     onchange?: (s: Settings) => void;
   } = $props();
+
+  let checked = $state<boolean | null>(null);
+  let saved = $derived(has ?? checked ?? false);
+
+  onMount(async () => {
+    if (has === undefined) {
+      checked = await call<boolean>('has_secret', { provider }).catch(() => false);
+    }
+  });
 
   let editing = $state(false);
   let value = $state('');
@@ -35,6 +46,7 @@
       const s = await call<Settings>('set_secret', { provider, value });
       value = '';
       editing = false;
+      checked = true;
       onchange?.(s);
     } catch (e) {
       error = errorMessage(e);
@@ -48,6 +60,7 @@
     error = '';
     try {
       const s = await call<Settings>('delete_secret', { provider });
+      checked = false;
       onchange?.(s);
     } catch (e) {
       error = errorMessage(e);
@@ -59,7 +72,7 @@
 
 <div>
   <label for={inputId} class="block text-sm font-medium mb-2">{label}</label>
-  {#if has && !editing}
+  {#if saved && !editing}
     <div class="flex items-center gap-2">
       <span class="text-green-400 text-sm flex-1">Key saved in OS keychain ✓</span>
       <button class="glass-panel px-3 py-1 text-xs hover:bg-white/10" onclick={() => (editing = true)} disabled={busy}>Replace</button>
@@ -76,7 +89,7 @@
         class="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-2"
       />
       <button class="glass-panel px-3 py-2 text-xs hover:bg-white/10 disabled:opacity-50" onclick={save} disabled={busy || !value.trim()}>Save key</button>
-      {#if has}
+      {#if saved}
         <button class="glass-panel px-3 py-2 text-xs hover:bg-white/10" onclick={() => { editing = false; value = ''; }}>Cancel</button>
       {/if}
     </div>

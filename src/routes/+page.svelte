@@ -2,8 +2,10 @@
   import { onMount } from 'svelte';
   import { Channel } from '@tauri-apps/api/core';
   import { call, errorMessage } from '$lib/api';
+  import { listen } from '@tauri-apps/api/event';
   import { renderMarkdown } from '$lib/markdown';
-  import type { SystemStatus, UiEvent } from '$lib/types';
+  import { speak, startRecording, transcribe, type Recording } from '$lib/voice';
+  import type { Settings, SystemStatus, UiEvent } from '$lib/types';
   import Avatar from '$lib/components/Avatar.svelte';
   import SettingsView from '$lib/components/SettingsView.svelte';
   import KnowledgeView from '$lib/components/KnowledgeView.svelte';
@@ -113,7 +115,18 @@
     };
     updateSystemStatus();
 
+    // Global Ctrl+Space push-to-talk (emitted by the Rust shortcut handler).
+    let unlistenPtt: (() => void) | undefined;
+    listen<string>('ptt', (e) => {
+      if (e.payload === 'pressed') startListening();
+      else stopListening();
+    }).then((u) => {
+      if (alive) unlistenPtt = u;
+      else u();
+    });
+
     return () => {
+      unlistenPtt?.();
       alive = false;
       clearTimeout(statusTimer);
       clearTimeout(typingTimeout);
@@ -208,8 +221,70 @@
     }
   }
 
-  // Voice input is not implemented yet; the mic button is disabled.
-  const voiceAvailable = false;
+  // Push-to-talk voice input: enabled only when voice + an STT URL are configured.
+  let voiceAvailable = $state(false);
+  let isListening = $state(false);
+  let recording: Recording | null = null;
+
+  async function refreshVoice() {
+    try {
+      const s = await call<Settings>('load_settings');
+      voiceAvailable = s.voice.enabled && s.voice.stt_url.trim() !== '';
+    } catch {
+      voiceAvailable = false;
+    }
+  }
+
+  async function startListening() {
+    if (!voiceAvailable || recording || isProcessing) return;
+    try {
+      recording = await startRecording();
+      isListening = true;
+      avatarEmotion = 'listening';
+    } catch (e) {
+      recording = null;
+      addNotification(`Microphone: ${errorMessage(e)}`, 'error');
+    }
+  }
+
+  async function stopListening() {
+    if (!recording) return;
+    const r = recording;
+    recording = null;
+    isListening = false;
+    avatarEmotion = 'processing';
+    try {
+      const { bytes, mime } = await r.stop();
+      const text = await transcribe(bytes, mime);
+      avatarEmotion = 'idle';
+      if (text) {
+        userInput = text;
+        await sendMessage();
+      } else {
+        addNotification('No speech detected', 'info');
+      }
+    } catch (e) {
+      avatarEmotion = 'error';
+      addNotification(`Speech-to-text: ${errorMessage(e)}`, 'error');
+      later(() => (avatarEmotion = 'idle'), 2000);
+    }
+  }
+
+  async function speakMessage(text: string) {
+    try {
+      isSpeaking = true;
+      await speak(text);
+    } catch (e) {
+      addNotification(`Text-to-speech: ${errorMessage(e)}`, 'error');
+    } finally {
+      isSpeaking = false;
+    }
+  }
+
+  // Re-read voice settings whenever the user leaves the Settings view.
+  $effect(() => {
+    if (currentView !== 'settings') refreshVoice();
+  });
 
   function handleKeyPress(event: KeyboardEvent) {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -441,6 +516,9 @@
                   {:else}
                     <div class="text-white whitespace-pre-wrap">{message.content}</div>
                   {/if}
+                  {#if message.role === 'assistant' && voiceAvailable && message.content}
+                    <button class="mt-1 text-xs text-gray-400 hover:text-white" onclick={() => speakMessage(message.content)} title="Read aloud (Piper)">🔊 Read aloud</button>
+                  {/if}
                   {#if message.notes.length}
                     <ul class="mt-2 space-y-1 text-xs text-gray-400">
                       {#each message.notes as note}<li>{note}</li>{/each}
@@ -499,10 +577,13 @@
 
       <div class="flex items-center gap-3">
         <button
-          class="p-3 rounded-full transition-all duration-200 bg-cosmic-blue/20 disabled:opacity-40 disabled:cursor-not-allowed"
-          disabled={!voiceAvailable}
-          title="Voice input is not available yet"
-          aria-label="Voice input (not available yet)"
+          class="p-3 rounded-full transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed {isListening ? 'bg-red-500 animate-pulse scale-110' : 'bg-cosmic-blue/20 hover:bg-cosmic-blue/30'}"
+          disabled={!voiceAvailable || isProcessing}
+          onpointerdown={startListening}
+          onpointerup={stopListening}
+          onpointerleave={stopListening}
+          title={voiceAvailable ? 'Hold to talk (or hold Ctrl+Space)' : 'Voice input is off: configure it in Settings → Voice'}
+          aria-label="Push to talk"
         >
           <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
             <path d="M7 4a3 3 0 016 0v6a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z"/>
