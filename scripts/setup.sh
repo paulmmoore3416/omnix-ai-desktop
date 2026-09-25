@@ -40,6 +40,8 @@ case "${OS}" in
     Linux*)
         echo "🐧 Detected Linux"
         if command -v apt-get &> /dev/null; then
+            echo "Tip: ./scripts/bootstrap.sh does the full install on Ubuntu/Debian"
+            echo "     (Ollama, speech-to-text, Piper, settings and the app itself)."
             echo "Installing Linux dependencies..."
             sudo apt-get update
             sudo apt-get install -y \
@@ -50,7 +52,8 @@ case "${OS}" in
                 file \
                 libssl-dev \
                 libayatana-appindicator3-dev \
-                librsvg2-dev
+                librsvg2-dev \
+                libxdo-dev
         elif command -v dnf &> /dev/null; then
             echo "Installing Fedora dependencies..."
             sudo dnf install -y \
