@@ -11,6 +11,8 @@
   let saveStatus = $state<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' });
   let testingConnection = $state<string | null>(null);
   let statusTimer: ReturnType<typeof setTimeout> | undefined;
+  let models = $state<string[]>([]);
+  let modelsError = $state('');
 
   const tabs = [
     { id: 'general', label: 'General', icon: '⚙️' },
@@ -37,8 +39,21 @@
     try {
       settings = await call<Settings>('load_settings');
       loadError = '';
+      if (settings.ai.provider === 'ollama') await refreshModels();
     } catch (e) {
       loadError = errorMessage(e);
+    }
+  }
+
+  /** Discover installed Ollama models (no model ids are hardcoded). */
+  async function refreshModels() {
+    if (!settings) return;
+    modelsError = '';
+    try {
+      models = await call<string[]>('list_ollama_models', { host: settings.ai.ollama_host });
+    } catch (e) {
+      models = [];
+      modelsError = errorMessage(e);
     }
   }
 
@@ -252,7 +267,20 @@
                 </div>
                 <div>
                   <label for="ollama-model" class="block text-sm font-medium mb-2">Model</label>
-                  <input id="ollama-model" type="text" bind:value={settings.ai.ollama_model} placeholder="Use Test Connection to list installed models" class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+                  <div class="flex gap-2">
+                    <select id="ollama-model" bind:value={settings.ai.ollama_model} class="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-2">
+                      <option value="">Select an installed model…</option>
+                      {#each models as m}
+                        <option value={m}>{m}</option>
+                      {/each}
+                      {#if settings.ai.ollama_model && !models.includes(settings.ai.ollama_model)}
+                        <option value={settings.ai.ollama_model}>{settings.ai.ollama_model} (not found on server)</option>
+                      {/if}
+                    </select>
+                    <button onclick={refreshModels} class="glass-panel px-3 py-2 text-sm hover:bg-white/10" title="Refresh installed models">↻</button>
+                  </div>
+                  {#if modelsError}<p class="text-xs text-red-400 mt-1">{modelsError}</p>{/if}
+                  {#if !modelsError && models.length === 0}<p class="text-xs text-gray-400 mt-1">No models found. Run <code>ollama pull &lt;model&gt;</code>.</p>{/if}
                 </div>
               {:else if settings.ai.provider === 'openai'}
                 <SecretField provider="openai" label="OpenAI API Key" placeholder="sk-..." has={settings.ai.has_openai_key} onchange={(s) => (settings = s)} />
