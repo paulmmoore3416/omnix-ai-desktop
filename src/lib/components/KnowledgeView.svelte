@@ -9,6 +9,7 @@
   let isProcessing = $state(false);
   let available = $state(false);
   let lastError = $state('');
+  let indexedMessage = $state('');
   
   let memories = $state<Array<{
     id: string;
@@ -99,7 +100,7 @@
         embeddingModel: parsed.embeddingModel || ''
       };
       
-      memories = (parsed.memories || []).map((m: any) => ({
+      memories = ((parsed.memories || []) as any[]).map((m: any) => ({
         ...m,
         timestamp: new Date(m.timestamp)
       }));
@@ -174,7 +175,9 @@
       const path = await call<string | null>('select_file');
       if (path) {
         isProcessing = true;
-        await call('index_document', { path });
+        const chunks = await call<number>('index_document', { path });
+        lastError = '';
+        indexedMessage = `Indexed ${path} (${chunks} chunks)`;
         await loadData();
       }
     } catch (error) {
@@ -285,9 +288,12 @@
   
   {#if !available}
     <div class="glass-panel p-4 mb-4 bg-yellow-500/10 border border-yellow-500/30 text-sm text-gray-300">
-      <span class="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded mr-2">Not yet available</span>
-      Persistent memory and document indexing are not implemented yet. They will connect to a kb-core service (PostgreSQL/pgvector) configured in Settings → Memory.
+      <span class="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded mr-2">Not configured</span>
+      Long-term memory is disabled. Set a kb-core service URL in Settings → Memory to save memories, index documents and search. Knowledge bases, export/import and optimization are not yet available.
     </div>
+  {/if}
+  {#if indexedMessage}
+    <div class="glass-panel p-3 mb-4 bg-green-500/20 text-sm" role="status">{indexedMessage}</div>
   {/if}
   {#if lastError}
     <div class="glass-panel p-3 mb-4 bg-red-500/20 text-sm" role="alert">{lastError}</div>
@@ -380,8 +386,8 @@
             
             <button
               onclick={saveMemory}
-              disabled={isProcessing || !newMemory.content.trim() || unavailable('save_memory')}
-              title={unavailable('save_memory') ? 'Not yet available' : undefined}
+              disabled={isProcessing || !newMemory.content.trim() || !available}
+              title={!available ? 'Configure a kb-core URL in Settings → Memory' : undefined}
               class="w-full px-4 py-2 bg-cosmic-blue hover:bg-cosmic-cyan text-white rounded-lg font-medium transition-all disabled:opacity-50"
             >
               {isProcessing ? '⏳ Saving...' : '💾 Save Memory'}
@@ -403,7 +409,7 @@
                   </div>
                   <button
                     onclick={() => deleteMemory(memory.id)}
-                    disabled={unavailable('delete_memory')}
+                    disabled={!available}
                     class="text-red-400 hover:text-red-300 text-sm"
                   >
                     🗑️
@@ -438,8 +444,8 @@
             <h3 class="text-xl font-bold text-cosmic-cyan">Document Index</h3>
             <button
               onclick={indexDocument}
-              disabled={isProcessing || unavailable('index_document')}
-              title={unavailable('index_document') ? 'Not yet available' : undefined}
+              disabled={isProcessing || !available}
+              title={!available ? 'Configure a kb-core URL in Settings → Memory' : undefined}
               class="glass-panel px-4 py-2 hover:bg-white/10 transition-all text-sm disabled:opacity-50"
             >
               {isProcessing ? '⏳ Indexing...' : '📄 Index Document'}
@@ -565,14 +571,14 @@
               <input
                 type="text"
                 bind:value={searchQuery}
-                onkeypress={(e) => e.key === 'Enter' && !unavailable('semantic_search') && semanticSearch()}
+                onkeypress={(e) => e.key === 'Enter' && available && semanticSearch()}
                 placeholder="Search across all knowledge..."
                 class="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-sm"
               />
               <button
                 onclick={semanticSearch}
-                disabled={isSearching || !searchQuery.trim() || unavailable('semantic_search')}
-                title={unavailable('semantic_search') ? 'Not yet available' : undefined}
+                disabled={isSearching || !searchQuery.trim() || !available}
+                title={!available ? 'Configure a kb-core URL in Settings → Memory' : undefined}
                 class="px-6 py-3 bg-cosmic-blue hover:bg-cosmic-cyan text-white rounded-lg font-medium transition-all disabled:opacity-50"
               >
                 {isSearching ? '⏳ Searching...' : '🔍 Search'}

@@ -13,6 +13,7 @@
   let statusTimer: ReturnType<typeof setTimeout> | undefined;
   let models = $state<string[]>([]);
   let modelsError = $state('');
+  let kbTokenSaved = $state(false);
 
   const tabs = [
     { id: 'general', label: 'General', icon: '⚙️' },
@@ -39,21 +40,36 @@
     try {
       settings = await call<Settings>('load_settings');
       loadError = '';
-      if (settings.ai.provider === 'ollama') await refreshModels();
+      kbTokenSaved = await call<boolean>('has_secret', { provider: 'kb_core' }).catch(() => false);
+      await refreshModels();
     } catch (e) {
       loadError = errorMessage(e);
     }
   }
 
-  /** Discover installed Ollama models (no model ids are hardcoded). */
+  /** Discover available models (no model ids are hardcoded). */
   async function refreshModels() {
     if (!settings) return;
     modelsError = '';
     try {
-      models = await call<string[]>('list_ollama_models', { host: settings.ai.ollama_host });
+      models =
+        settings.ai.provider === 'ollama'
+          ? await call<string[]>('list_ollama_models', { host: settings.ai.ollama_host })
+          : await call<string[]>('list_models', { provider: settings.ai.provider });
     } catch (e) {
       models = [];
       modelsError = errorMessage(e);
+    }
+  }
+
+  async function testMemory() {
+    testingConnection = 'memory';
+    try {
+      flash('success', await call<string>('test_memory_backend'));
+    } catch (e) {
+      flash('error', errorMessage(e), 8000);
+    } finally {
+      testingConnection = null;
     }
   }
 
@@ -251,7 +267,7 @@
             <div class="space-y-4">
               <div>
                 <label for="provider" class="block text-sm font-medium mb-2">AI Provider</label>
-                <select id="provider" bind:value={settings.ai.provider} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2">
+                <select id="provider" bind:value={settings.ai.provider} onchange={() => { models = []; refreshModels(); }} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2">
                   <option value="ollama">Ollama (Local)</option>
                   <option value="openai" disabled={settings.security.local_only}>OpenAI</option>
                   <option value="anthropic" disabled={settings.security.local_only}>Anthropic (Claude)</option>
@@ -283,13 +299,34 @@
                   {#if !modelsError && models.length === 0}<p class="text-xs text-gray-400 mt-1">No models found. Run <code>ollama pull &lt;model&gt;</code>.</p>{/if}
                 </div>
               {:else if settings.ai.provider === 'openai'}
-                <SecretField provider="openai" label="OpenAI API Key" placeholder="sk-..." has={settings.ai.has_openai_key} onchange={(s) => (settings = s)} />
+                <SecretField provider="openai" label="OpenAI API Key" placeholder="sk-..." has={settings.ai.has_openai_key} onchange={(s) => { settings = s; refreshModels(); }} />
               {:else if settings.ai.provider === 'anthropic'}
-                <SecretField provider="anthropic" label="Anthropic API Key" placeholder="sk-ant-..." has={settings.ai.has_anthropic_key} onchange={(s) => (settings = s)} />
+                <SecretField provider="anthropic" label="Anthropic API Key" placeholder="sk-ant-..." has={settings.ai.has_anthropic_key} onchange={(s) => { settings = s; refreshModels(); }} />
+                <p class="text-xs text-gray-400">Temperature is not sent to Anthropic: current Claude models reject sampling parameters.</p>
               {:else if settings.ai.provider === 'gemini'}
-                <SecretField provider="gemini" label="Gemini API Key" placeholder="AIza..." has={settings.ai.has_gemini_key} onchange={(s) => (settings = s)} />
+                <SecretField provider="gemini" label="Gemini API Key" placeholder="AIza..." has={settings.ai.has_gemini_key} onchange={(s) => { settings = s; refreshModels(); }} />
               {:else if settings.ai.provider === 'xai'}
-                <SecretField provider="xai" label="xAI API Key" placeholder="xai-..." has={settings.ai.has_xai_key} onchange={(s) => (settings = s)} />
+                <SecretField provider="xai" label="xAI API Key" placeholder="xai-..." has={settings.ai.has_xai_key} onchange={(s) => { settings = s; refreshModels(); }} />
+              {/if}
+
+              {#if settings.ai.provider !== 'ollama'}
+                <div>
+                  <label for="cloud-model" class="block text-sm font-medium mb-2">Model</label>
+                  <div class="flex gap-2">
+                    <select id="cloud-model" bind:value={settings.ai.cloud_model} class="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-2">
+                      <option value="">Select a model…</option>
+                      {#each models as m}
+                        <option value={m}>{m}</option>
+                      {/each}
+                      {#if settings.ai.cloud_model && !models.includes(settings.ai.cloud_model)}
+                        <option value={settings.ai.cloud_model}>{settings.ai.cloud_model}</option>
+                      {/if}
+                    </select>
+                    <button onclick={refreshModels} class="glass-panel px-3 py-2 text-sm hover:bg-white/10" title="Refresh available models">↻</button>
+                  </div>
+                  {#if modelsError}<p class="text-xs text-red-400 mt-1">{modelsError}</p>{/if}
+                  <p class="text-xs text-gray-400 mt-1">Models are listed from the provider's API after you save a key.</p>
+                </div>
               {/if}
 
               <div>
@@ -380,18 +417,26 @@
 
         {:else if activeTab === 'memory'}
           <div class="space-y-6">
-            <h3 class="text-xl font-bold text-cosmic-cyan mb-4">Memory & Knowledge Base <span class="text-xs align-middle bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded">Planned</span></h3>
-            <div class="glass-panel p-4 bg-white/5 text-sm text-gray-300">Persistent memory is not implemented yet. It will use an external kb-core service (PostgreSQL/pgvector) that you configure here.</div>
-            <fieldset disabled class="space-y-4 opacity-50">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-xl font-bold text-cosmic-cyan">Memory & Knowledge Base</h3>
+              <button onclick={testMemory} disabled={testingConnection === 'memory' || !settings.memory.backend_url} class="glass-panel px-4 py-2 hover:bg-white/10 transition-all text-sm disabled:opacity-50">
+                {testingConnection === 'memory' ? '⏳ Testing...' : '🧪 Test Connection'}
+              </button>
+            </div>
+            <div class="glass-panel p-4 bg-white/5 text-sm text-gray-300">
+              Long-term memory uses an external <strong>kb-core</strong> service (PostgreSQL/pgvector). Leave the URL empty to keep memory disabled. Save settings before testing.
+            </div>
+            <div class="space-y-4">
               <div>
-                <label for="max-mem" class="block text-sm font-medium mb-2">Max Memory Size (entries)</label>
-                <input id="max-mem" type="number" bind:value={settings.memory.max_memory_size} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+                <label for="kb-url" class="block text-sm font-medium mb-2">kb-core URL</label>
+                <input id="kb-url" type="text" bind:value={settings.memory.backend_url} placeholder="http://localhost:8000 (empty = disabled)" class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
               </div>
+              <SecretField provider="kb_core" label="kb-core bearer token (optional)" placeholder="token" has={kbTokenSaved} onchange={async (s) => { settings = s; kbTokenSaved = await call<boolean>('has_secret', { provider: 'kb_core' }).catch(() => false); }} />
               <div>
-                <label for="retention" class="block text-sm font-medium mb-2">Retention Period (days)</label>
-                <input id="retention" type="number" bind:value={settings.memory.retention_days} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+                <label for="retention" class="block text-sm font-medium mb-2">Retention Period (days) <span class="text-xs text-yellow-300">planned</span></label>
+                <input id="retention" type="number" bind:value={settings.memory.retention_days} disabled class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 opacity-50" />
               </div>
-            </fieldset>
+            </div>
           </div>
 
         {:else if activeTab === 'security'}

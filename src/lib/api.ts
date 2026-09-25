@@ -30,10 +30,6 @@ export interface AppError {
  * them are rendered disabled with a "Not yet available" badge.
  */
 export const NOT_IMPLEMENTED = new Set<string>([
-  'save_memory',
-  'delete_memory',
-  'semantic_search',
-  'index_document',
   'create_knowledge_base',
   'export_knowledge',
   'import_knowledge',

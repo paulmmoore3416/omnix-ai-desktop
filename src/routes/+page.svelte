@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { Channel } from '@tauri-apps/api/core';
   import { call, errorMessage } from '$lib/api';
-  import type { SystemStatus } from '$lib/types';
+  import { renderMarkdown } from '$lib/markdown';
+  import type { SystemStatus, UiEvent } from '$lib/types';
   import Avatar from '$lib/components/Avatar.svelte';
   import SettingsView from '$lib/components/SettingsView.svelte';
   import KnowledgeView from '$lib/components/KnowledgeView.svelte';
@@ -9,7 +11,8 @@
   
   let currentView = $state('home');
   let userInput = $state('');
-  let messages = $state<Array<{role: string, content: string, timestamp: Date}>>([]);
+  type Message = { role: 'user' | 'assistant'; content: string; timestamp: Date; notes: string[] };
+  let messages = $state<Message[]>([]);
   let isSpeaking = $state(false);
   let isProcessing = $state(false);
   let avatarEmotion = $state<'idle' | 'thinking' | 'speaking' | 'working' | 'happy' | 'excited' | 'focused' | 'confused' | 'success' | 'error' | 'listening' | 'processing'>('idle');
@@ -121,63 +124,87 @@
 
   async function sendMessage() {
     if (!userInput.trim() || isProcessing) return;
-    
-    const userMessage = {
-      role: 'user',
-      content: userInput,
-      timestamp: new Date()
-    };
-    
-    messages = [...messages, userMessage];
+
     const query = userInput;
+    messages = [...messages, { role: 'user', content: query, timestamp: new Date(), notes: [] }];
     userInput = '';
     showSuggestions = false;
-
-    // Determine emotion based on command
     isProcessing = true;
-    if (query.startsWith('/execute')) {
-      avatarEmotion = 'working';
-    } else if (query.startsWith('/search')) {
-      avatarEmotion = 'focused';
-    } else if (query.includes('?')) {
-      avatarEmotion = 'thinking';
-    } else {
-      avatarEmotion = 'processing';
-    }
-
     isSpeaking = true;
+    avatarEmotion = query.startsWith('/execute') ? 'working' : query.includes('?') ? 'thinking' : 'processing';
 
     try {
-      const response = await call<string>('process_command', { command: query });
-
-      messages = [...messages, {
-        role: 'assistant',
-        content: response,
-        timestamp: new Date()
-      }];
-
+      if (query.startsWith('/')) {
+        // Slash commands are handled locally by the backend.
+        const response = await call<string>('process_command', { command: query });
+        messages = [...messages, { role: 'assistant', content: response, timestamp: new Date(), notes: [] }];
+      } else {
+        await streamChat(query);
+      }
       avatarEmotion = 'success';
-      
       later(() => {
         avatarEmotion = 'happy';
         later(() => (avatarEmotion = 'idle'), 2000);
       }, 1000);
-      
     } catch (error) {
       const msg = errorMessage(error);
-      messages = [...messages, {
-        role: 'assistant',
-        content: `Error: ${msg}`,
-        timestamp: new Date()
-      }];
-
+      const last = messages[messages.length - 1];
+      if (last?.role === 'assistant' && !query.startsWith('/')) {
+        if (!last.notes.includes(`✗ ${msg}`)) last.notes.push(`✗ ${msg}`);
+      } else {
+        messages = [...messages, { role: 'assistant', content: `Error: ${msg}`, timestamp: new Date(), notes: [] }];
+      }
       avatarEmotion = 'error';
       addNotification(msg, 'error');
-      
       later(() => (avatarEmotion = 'idle'), 3000);
     } finally {
       isProcessing = false;
       isSpeaking = false;
+    }
+  }
+
+  /** Stream a chat turn: tokens, tool activity and notices arrive over a Channel. */
+  async function streamChat(query: string) {
+    currentView = 'history';
+    messages = [...messages, { role: 'assistant', content: '', timestamp: new Date(), notes: [] }];
+    const reply = messages[messages.length - 1];
+    const channel = new Channel<UiEvent>();
+    channel.onmessage = (ev) => {
+      switch (ev.type) {
+        case 'token':
+          reply.content += ev.text;
+          break;
+        case 'tool_call':
+          reply.notes.push(`🔧 ${ev.name} requested`);
+          break;
+        case 'tool_result':
+          reply.notes.push(`${ev.ok ? '✓' : '✗'} ${ev.name}: ${ev.summary}`);
+          break;
+        case 'notice':
+          reply.notes.push(`ℹ ${ev.message}`);
+          break;
+        case 'error':
+          reply.notes.push(`✗ ${ev.message}`);
+          break;
+      }
+    };
+    await call('chat_send', { message: query, onEvent: channel });
+  }
+
+  async function stopResponse() {
+    try {
+      await call('chat_cancel');
+    } catch (e) {
+      addNotification(errorMessage(e), 'error');
+    }
+  }
+
+  async function clearConversation() {
+    try {
+      await call('chat_reset');
+      messages = [];
+    } catch (e) {
+      addNotification(errorMessage(e), 'error');
     }
   }
 
@@ -395,7 +422,10 @@
     {:else if currentView === 'history'}
       <!-- History View with performance optimization -->
       <div class="flex-1 glass-panel p-6 overflow-auto animate-fade-in" bind:this={messageContainer}>
-        <h2 class="text-2xl font-bold glow-text mb-6">Command History</h2>
+        <div class="flex items-center justify-between mb-6">
+          <h2 class="text-2xl font-bold glow-text">Conversation</h2>
+          <button onclick={clearConversation} disabled={isProcessing} class="glass-panel px-3 py-1 text-sm hover:bg-white/10 disabled:opacity-50">🧹 Clear</button>
+        </div>
         <div class="space-y-3">
           {#each recentMessages as message}
             <div class="glass-panel p-4 {message.role === 'user' ? 'bg-cosmic-blue/10' : 'bg-cosmic-purple/10'} animate-slide-in">
@@ -405,13 +435,23 @@
                   <div class="text-sm text-gray-400 mb-1">
                     {message.timestamp.toLocaleTimeString()}
                   </div>
-                  <div class="text-white whitespace-pre-wrap">{message.content}</div>
+                  {#if message.role === 'assistant'}
+                    <!-- Model output is untrusted: always sanitized by renderMarkdown. -->
+                    <div class="md-content text-white">{@html renderMarkdown(message.content)}</div>
+                  {:else}
+                    <div class="text-white whitespace-pre-wrap">{message.content}</div>
+                  {/if}
+                  {#if message.notes.length}
+                    <ul class="mt-2 space-y-1 text-xs text-gray-400">
+                      {#each message.notes as note}<li>{note}</li>{/each}
+                    </ul>
+                  {/if}
                 </div>
               </div>
             </div>
           {/each}
           {#if messages.length === 0}
-            <p class="text-gray-400 text-center py-8">No commands executed yet</p>
+            <p class="text-gray-400 text-center py-8">No messages yet</p>
           {/if}
         </div>
       </div>
@@ -479,6 +519,9 @@
           disabled={isProcessing}
         />
 
+        {#if isProcessing}
+          <button onclick={stopResponse} class="px-4 py-3 glass-panel hover:bg-white/10 text-sm" title="Stop the current response">⏹ Stop</button>
+        {/if}
         <button
           onclick={sendMessage}
           disabled={isProcessing || !userInput.trim()}
@@ -540,6 +583,32 @@
     50% {
       text-shadow: 0 0 30px rgba(0, 212, 255, 0.8);
     }
+  }
+
+  /* Rendered (sanitized) markdown in assistant messages. */
+  .md-content :global(pre) {
+    background: rgba(0, 0, 0, 0.35);
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+    overflow-x: auto;
+    margin: 0.5rem 0;
+  }
+  .md-content :global(code) {
+    font-family: ui-monospace, monospace;
+    font-size: 0.875em;
+  }
+  .md-content :global(p) {
+    margin: 0.25rem 0;
+  }
+  .md-content :global(ul),
+  .md-content :global(ol) {
+    padding-left: 1.25rem;
+    list-style: disc;
+  }
+  .md-content :global(.md-link) {
+    text-decoration: underline;
+    color: #7dd3fc;
+    cursor: help;
   }
 
   .animate-slide-in {

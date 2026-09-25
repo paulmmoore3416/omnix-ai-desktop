@@ -22,6 +22,7 @@ export interface Settings {
     provider: 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'xai';
     ollama_host: string;
     ollama_model: string;
+    cloud_model: string;
     /** Read-only: computed from the OS keychain. */
     has_openai_key: boolean;
     has_anthropic_key: boolean;
@@ -49,6 +50,7 @@ export interface Settings {
     continuous_listening: boolean;
   };
   memory: {
+    backend_url: string;
     max_memory_size: number;
     auto_summarize: boolean;
     retention_days: number;
@@ -88,7 +90,8 @@ export type SecretProvider =
   | 'github'
   | 'google_drive'
   | 'jira'
-  | 'notion';
+  | 'notion'
+  | 'kb_core';
 
 /** Mirrors `security::executor::ExecResult`. */
 export interface ExecResult {
@@ -175,3 +178,12 @@ export interface SystemControlData {
   scheduledTasks: unknown[];
   alerts: unknown[];
 }
+
+/** Mirrors `ai::agent::UiEvent` (streamed over a Tauri Channel). */
+export type UiEvent =
+  | { type: 'token'; text: string }
+  | { type: 'tool_call'; id: string; name: string; arguments: unknown }
+  | { type: 'tool_result'; id: string; name: string; ok: boolean; summary: string }
+  | { type: 'notice'; message: string }
+  | { type: 'error'; message: string }
+  | { type: 'done' };
