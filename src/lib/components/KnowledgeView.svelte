@@ -1,11 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { call, errorMessage, unavailable } from '$lib/api';
+  import type { KnowledgeData } from '$lib/types';
   
   let activeTab = $state('memories');
   let searchQuery = $state('');
   let isSearching = $state(false);
   let isProcessing = $state(false);
+  let available = $state(false);
+  let lastError = $state('');
   
   let memories = $state<Array<{
     id: string;
@@ -48,8 +51,8 @@
     totalDocuments: 0,
     totalKnowledgeBases: 0,
     storageUsed: 0,
-    vectorDimensions: 384,
-    embeddingModel: 'all-MiniLM-L6-v2'
+    vectorDimensions: 0,
+    embeddingModel: ''
   });
   
   let newMemory = $state({
@@ -84,16 +87,16 @@
   
   async function loadData() {
     try {
-      const data = await invoke('get_knowledge_data');
-      const parsed = data as typeof stats & { memories: typeof memories; documents: typeof documents; knowledgeBases: typeof knowledgeBases };
+      const parsed = await call<KnowledgeData>('get_knowledge_data');
+      available = parsed.available;
       
       stats = {
         totalMemories: parsed.totalMemories || 0,
         totalDocuments: parsed.totalDocuments || 0,
         totalKnowledgeBases: parsed.totalKnowledgeBases || 0,
         storageUsed: parsed.storageUsed || 0,
-        vectorDimensions: parsed.vectorDimensions || 384,
-        embeddingModel: parsed.embeddingModel || 'all-MiniLM-L6-v2'
+        vectorDimensions: parsed.vectorDimensions || 0,
+        embeddingModel: parsed.embeddingModel || ''
       };
       
       memories = (parsed.memories || []).map((m: any) => ({
@@ -111,7 +114,7 @@
         lastUpdated: new Date(kb.lastUpdated)
       }));
     } catch (error) {
-      console.error('Failed to load knowledge data:', error);
+      lastError = errorMessage(error);
     }
   }
   
@@ -121,7 +124,7 @@
     isProcessing = true;
     try {
       const tags = newMemory.tags.split(',').map(t => t.trim()).filter(t => t);
-      await invoke('save_memory', {
+      await call('save_memory', {
         content: newMemory.content,
         tags,
         importance: newMemory.importance,
@@ -131,7 +134,7 @@
       newMemory = { content: '', tags: '', importance: 5, category: 'general' };
       await loadData();
     } catch (error) {
-      console.error('Failed to save memory:', error);
+      lastError = errorMessage(error);
     } finally {
       isProcessing = false;
     }
@@ -141,10 +144,10 @@
     if (!confirm('Are you sure you want to delete this memory?')) return;
     
     try {
-      await invoke('delete_memory', { id });
+      await call('delete_memory', { id });
       await loadData();
     } catch (error) {
-      console.error('Failed to delete memory:', error);
+      lastError = errorMessage(error);
     }
   }
   
@@ -153,13 +156,13 @@
     
     isSearching = true;
     try {
-      const results = await invoke('semantic_search', { query: searchQuery, limit: 20 });
-      searchResults = (results as any[]).map((r: any) => ({
+      const results = await call<any[]>('semantic_search', { query: searchQuery, limit: 20 });
+      searchResults = results.map((r: any) => ({
         ...r,
         timestamp: new Date(r.timestamp)
       }));
     } catch (error) {
-      console.error('Search failed:', error);
+      lastError = errorMessage(error);
       searchResults = [];
     } finally {
       isSearching = false;
@@ -168,14 +171,14 @@
   
   async function indexDocument() {
     try {
-      const path = await invoke('select_file');
+      const path = await call<string | null>('select_file');
       if (path) {
         isProcessing = true;
-        await invoke('index_document', { path });
+        await call('index_document', { path });
         await loadData();
       }
     } catch (error) {
-      console.error('Failed to index document:', error);
+      lastError = errorMessage(error);
     } finally {
       isProcessing = false;
     }
@@ -186,7 +189,7 @@
     
     isProcessing = true;
     try {
-      await invoke('create_knowledge_base', {
+      await call('create_knowledge_base', {
         name: newKnowledgeBase.name,
         description: newKnowledgeBase.description,
         type: newKnowledgeBase.type
@@ -195,7 +198,7 @@
       newKnowledgeBase = { name: '', description: '', type: 'personal' };
       await loadData();
     } catch (error) {
-      console.error('Failed to create knowledge base:', error);
+      lastError = errorMessage(error);
     } finally {
       isProcessing = false;
     }
@@ -203,28 +206,28 @@
   
   async function exportKnowledge() {
     try {
-      await invoke('export_knowledge');
+      await call('export_knowledge');
     } catch (error) {
-      console.error('Export failed:', error);
+      lastError = errorMessage(error);
     }
   }
   
   async function importKnowledge() {
     try {
-      await invoke('import_knowledge');
+      await call('import_knowledge');
       await loadData();
     } catch (error) {
-      console.error('Import failed:', error);
+      lastError = errorMessage(error);
     }
   }
   
   async function optimizeVectorDB() {
     isProcessing = true;
     try {
-      await invoke('optimize_vector_db');
+      await call('optimize_vector_db');
       await loadData();
     } catch (error) {
-      console.error('Optimization failed:', error);
+      lastError = errorMessage(error);
     } finally {
       isProcessing = false;
     }
@@ -255,19 +258,24 @@
     <div class="flex gap-2">
       <button
         onclick={exportKnowledge}
-        class="glass-panel px-4 py-2 hover:bg-white/10 transition-all text-sm"
+        disabled={unavailable('export_knowledge')}
+        title={unavailable('export_knowledge') ? 'Not yet available' : undefined}
+        class="disabled:opacity-40 disabled:cursor-not-allowed glass-panel px-4 py-2 hover:bg-white/10 transition-all text-sm"
       >
         📤 Export
       </button>
       <button
         onclick={importKnowledge}
-        class="glass-panel px-4 py-2 hover:bg-white/10 transition-all text-sm"
+        disabled={unavailable('import_knowledge')}
+        title={unavailable('import_knowledge') ? 'Not yet available' : undefined}
+        class="disabled:opacity-40 disabled:cursor-not-allowed glass-panel px-4 py-2 hover:bg-white/10 transition-all text-sm"
       >
         📥 Import
       </button>
       <button
         onclick={optimizeVectorDB}
-        disabled={isProcessing}
+        disabled={isProcessing || unavailable('optimize_vector_db')}
+        title={unavailable('optimize_vector_db') ? 'Not yet available' : undefined}
         class="glass-panel px-4 py-2 hover:bg-white/10 transition-all text-sm disabled:opacity-50"
       >
         ⚡ Optimize
@@ -275,6 +283,16 @@
     </div>
   </div>
   
+  {#if !available}
+    <div class="glass-panel p-4 mb-4 bg-yellow-500/10 border border-yellow-500/30 text-sm text-gray-300">
+      <span class="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded mr-2">Not yet available</span>
+      Persistent memory and document indexing are not implemented yet. They will connect to a kb-core service (PostgreSQL/pgvector) configured in Settings → Memory.
+    </div>
+  {/if}
+  {#if lastError}
+    <div class="glass-panel p-3 mb-4 bg-red-500/20 text-sm" role="alert">{lastError}</div>
+  {/if}
+
   <!-- Stats Overview -->
   <div class="grid grid-cols-4 gap-4 mb-6">
     <div class="glass-panel p-4 hover:scale-105 transition-transform">
@@ -362,7 +380,8 @@
             
             <button
               onclick={saveMemory}
-              disabled={isProcessing || !newMemory.content.trim()}
+              disabled={isProcessing || !newMemory.content.trim() || unavailable('save_memory')}
+              title={unavailable('save_memory') ? 'Not yet available' : undefined}
               class="w-full px-4 py-2 bg-cosmic-blue hover:bg-cosmic-cyan text-white rounded-lg font-medium transition-all disabled:opacity-50"
             >
               {isProcessing ? '⏳ Saving...' : '💾 Save Memory'}
@@ -384,6 +403,7 @@
                   </div>
                   <button
                     onclick={() => deleteMemory(memory.id)}
+                    disabled={unavailable('delete_memory')}
                     class="text-red-400 hover:text-red-300 text-sm"
                   >
                     🗑️
@@ -418,7 +438,8 @@
             <h3 class="text-xl font-bold text-cosmic-cyan">Document Index</h3>
             <button
               onclick={indexDocument}
-              disabled={isProcessing}
+              disabled={isProcessing || unavailable('index_document')}
+              title={unavailable('index_document') ? 'Not yet available' : undefined}
               class="glass-panel px-4 py-2 hover:bg-white/10 transition-all text-sm disabled:opacity-50"
             >
               {isProcessing ? '⏳ Indexing...' : '📄 Index Document'}
@@ -496,7 +517,8 @@
               
               <button
                 onclick={createKnowledgeBase}
-                disabled={isProcessing || !newKnowledgeBase.name.trim()}
+                disabled={isProcessing || !newKnowledgeBase.name.trim() || unavailable('create_knowledge_base')}
+                title={unavailable('create_knowledge_base') ? 'Not yet available' : undefined}
                 class="px-6 py-2 bg-cosmic-blue hover:bg-cosmic-cyan text-white rounded-lg font-medium transition-all disabled:opacity-50"
               >
                 {isProcessing ? '⏳' : '➕ Create'}
@@ -543,13 +565,14 @@
               <input
                 type="text"
                 bind:value={searchQuery}
-                onkeypress={(e) => e.key === 'Enter' && semanticSearch()}
+                onkeypress={(e) => e.key === 'Enter' && !unavailable('semantic_search') && semanticSearch()}
                 placeholder="Search across all knowledge..."
                 class="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-sm"
               />
               <button
                 onclick={semanticSearch}
-                disabled={isSearching || !searchQuery.trim()}
+                disabled={isSearching || !searchQuery.trim() || unavailable('semantic_search')}
+                title={unavailable('semantic_search') ? 'Not yet available' : undefined}
                 class="px-6 py-3 bg-cosmic-blue hover:bg-cosmic-cyan text-white rounded-lg font-medium transition-all disabled:opacity-50"
               >
                 {isSearching ? '⏳ Searching...' : '🔍 Search'}
@@ -558,7 +581,7 @@
             
             <div class="mt-3 text-xs text-gray-400">
               <p>💡 Semantic search finds results based on meaning, not just keywords</p>
-              <p class="mt-1">Model: {stats.embeddingModel} • Dimensions: {stats.vectorDimensions}</p>
+              {#if stats.embeddingModel}<p class="mt-1">Model: {stats.embeddingModel} • Dimensions: {stats.vectorDimensions}</p>{/if}
             </div>
           </div>
           

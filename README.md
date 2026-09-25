@@ -2,15 +2,14 @@
 
 # 🌌 OMNIX
 
-### Your God Mode AI Desktop Assistant
+### A local-first AI desktop assistant
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/Paulmmoore3416/omnix)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tauri](https://img.shields.io/badge/Tauri-2.0-orange.svg)](https://tauri.app)
-[![Svelte](https://img.shields.io/badge/Svelte-5.0-red.svg)](https://svelte.dev)
-[![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg)](https://www.rust-lang.org)
+[![Tauri](https://img.shields.io/badge/Tauri-2-orange.svg)](https://tauri.app)
+[![Svelte](https://img.shields.io/badge/Svelte-5-red.svg)](https://svelte.dev)
+[![Rust](https://img.shields.io/badge/Rust-1.80+-orange.svg)](https://www.rust-lang.org)
 
-**OMNIX** is an AI-powered desktop assistant with system-level access, built with Tauri 2.0 and SvelteKit for native performance.
+**OMNIX** is a desktop assistant built with Tauri 2, SvelteKit and Rust. It talks to a local LLM (Ollama) and can run commands on your machine, but only through a policy engine, native approval dialogs and a tamper-evident audit log.
 
 ![OMNIX Interface](uiexample.jpg)
 
@@ -18,296 +17,133 @@
 
 ---
 
-## 🎯 What is OMNIX?
+## What works today
 
-OMNIX is a desktop AI assistant that gives you unprecedented control over your computer through natural language. Execute commands, manage files, automate tasks, and interact with AI—all from a beautiful, native interface.
+| Area | Status |
+|------|--------|
+| Chat with a local Ollama model | ✅ |
+| `/execute` shell commands, risk-classified, with native approval for anything that changes the system | ✅ |
+| `/file read`, `/file list`, `/file write` (writes need approval, credential files are off-limits) | ✅ |
+| `/monitor` and the System Control view (CPU, memory, processes, ending a process) | ✅ |
+| API keys stored in the OS keychain | ✅ |
+| Hash-chained, redacted audit log with a **Verify** button | ✅ |
+| Local-only mode (blocks cloud providers and non-local endpoints) | ✅ on by default |
+| Settings export/import (never includes secrets) | ✅ |
+| Cloud providers (OpenAI, Anthropic, Gemini, xAI) | 🚧 planned: keys can be stored; chat is not wired yet |
+| Voice input/output (push-to-talk) | 🚧 planned |
+| Persistent memory / knowledge base | 🚧 planned |
+| Services, automations, scheduler, alerts, cleanup | 🚧 planned: controls are disabled in the UI |
+| Integrations (GitHub, Drive, …) | 🚧 planned: will be MCP servers |
 
-### Key Features
-
-- 🔐 **System-Level Access** - Execute commands with sudo privileges
-- 🤖 **AI Integration** - Local LLMs (Ollama) and cloud APIs (OpenAI, Claude, Grok)
-- 🎤 **Voice Interface** - Natural speech input/output
-- 💾 **Persistent Memory** - Remembers context across sessions
-- ⚡ **Native Performance** - 10x smaller and 3x faster than Electron
-- 🎨 **Beautiful UI** - JARVIS-inspired cosmic theme
+Anything marked planned is visibly disabled in the app and returns a `not_implemented` error from the backend. Nothing pretends to succeed.
 
 ---
 
-## 🚀 Quick Start
+## Quick start
 
 ### Prerequisites
 
-- **Node.js** 18+ and npm
-- **Rust** 1.70+
-- **Git**
-
-### Installation
+- Node.js 22 LTS and npm
+- Rust (stable) via [rustup](https://rustup.rs)
+- Platform dependencies for Tauri: see the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
+  - Linux: `libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libayatana-appindicator3-dev librsvg2-dev`, a polkit agent (for `pkexec`), and a Secret Service provider (GNOME Keyring or KWallet) for key storage
+- [Ollama](https://ollama.com) with at least one model pulled
 
 ```bash
-# Clone the repository
-git clone https://github.com/Paulmmoore3416/omnix.git
-cd omnix
-
-# Install dependencies
+git clone https://github.com/paulmmoore3416/omnix-ai-desktop.git
+cd omnix-ai-desktop
 npm install
-
-# Configure environment (optional for cloud AI)
-cp .env.example .env
-# Edit .env with your API keys if using cloud services
-
-# Run in development mode
-npm run tauri dev
-
-# Build for production
-npm run tauri build
+npm run tauri dev        # development
+npm run tauri build      # production bundle
 ```
 
-### Platform-Specific Setup
+### Configure
 
-<details>
-<summary><b>🍎 macOS</b></summary>
+All configuration is done in the app under **Settings** and stored in:
+
+- `settings.json` in your config directory (`~/.config/omnix/` on Linux). It contains **no secrets**.
+- The **OS keychain** for API keys (write-only from the UI: "Key saved ✓ / Replace / Remove").
+
+`.env` files are **not** read by the app. `.env.example` only documents developer tooling variables.
+
+To use a local model:
 
 ```bash
-# Install Xcode Command Line Tools
-xcode-select --install
-
-# Install Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# Install dependencies
-npm install
-
-# Run OMNIX
-npm run tauri dev
+ollama pull llama3.1        # or any model you prefer
 ```
 
-</details>
-
-<details>
-<summary><b>🐧 Linux</b></summary>
-
-```bash
-# Install dependencies (Ubuntu/Debian)
-sudo apt update
-sudo apt install libwebkit2gtk-4.1-dev \
-  build-essential \
-  curl \
-  wget \
-  file \
-  libssl-dev \
-  libayatana-appindicator3-dev \
-  librsvg2-dev
-
-# Install Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# Install Node dependencies
-npm install
-
-# Run OMNIX
-npm run tauri dev
-```
-
-**Fedora/RHEL:**
-```bash
-sudo dnf install webkit2gtk4.1-devel openssl-devel curl wget file libappindicator-gtk3-devel librsvg2-devel
-```
-
-**Arch Linux:**
-```bash
-sudo pacman -S webkit2gtk-4.1 base-devel curl wget file openssl libappindicator-gtk3 librsvg
-```
-
-</details>
-
-<details>
-<summary><b>🪟 Windows</b></summary>
-
-```powershell
-# Install Rust from: https://rustup.rs/
-
-# Install WebView2 (usually pre-installed on Windows 11)
-# Download from: https://developer.microsoft.com/microsoft-edge/webview2/
-
-# Install Node dependencies
-npm install
-
-# Run OMNIX
-npm run tauri dev
-```
-
-</details>
+Then open **Settings → AI Models**, click **Test Connection** to list installed models, type the model name, and save.
 
 ---
 
-## 🛠️ Configuration
+## Usage
 
-### Using Local AI (Recommended)
-
-For complete privacy, use Ollama for local AI:
-
-```bash
-# Install Ollama
-curl -fsSL https://ollama.com/install.sh | sh
-
-# Pull a model
-ollama pull llama2
-
-# Configure OMNIX
-# Edit .env:
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=llama2
-```
-
-### Using Cloud AI (Optional)
-
-To use cloud AI services, add API keys to `.env`:
-
-```env
-# OpenAI
-OPENAI_API_KEY=your_key_here
-
-# Anthropic Claude
-ANTHROPIC_API_KEY=your_key_here
-
-# Grok (X.AI)
-GROK_API_KEY=your_key_here
-
-# Google Gemini
-GEMINI_API_KEY=your_key_here
-```
-
----
-
-## 📖 Usage
-
-### Basic Commands
-
-```bash
-# Execute system commands
-/execute ls -la
-
-# File operations
-/file read ~/Documents/notes.txt
-/file write ~/test.txt "Hello OMNIX"
-
-# System monitoring
+```text
+/execute git status                 # read-only: runs immediately
+/execute npm install                # mutating: native approval dialog first
+/file read ~/notes/todo.md
+/file list ~/projects
+/file write ~/notes/new.md Hello    # approval dialog
 /monitor
 ```
 
-### Voice Commands
-
-Press `Ctrl+Space` or click the microphone icon:
-
-- "OMNIX, show me system status"
-- "Execute git status in my projects folder"
-- "Search for all Python files containing 'import pandas'"
-
-### Natural Language
-
-Just talk to OMNIX naturally:
-
-```
-"Set up a new React project with TypeScript and Tailwind"
-"Find all TODO comments in my code"
-"What's using the most CPU right now?"
-```
-
----
-
-## 🏗️ Technology Stack
-
-### Frontend
-- **SvelteKit 5.0** - Reactive UI framework
-- **TypeScript** - Type-safe development
-- **TailwindCSS** - Utility-first styling
-
-### Backend
-- **Tauri 2.0** - Rust-based desktop framework
-- **Rust** - Systems programming language
-
-### AI/ML
-- **Ollama** - Local LLM support
-- **OpenAI, Anthropic, X.AI, Google** - Cloud AI APIs
-- **Whisper** - Speech-to-text
-- **Piper TTS** - Text-to-speech
-
----
-
-## 📊 Performance
-
-| Metric | OMNIX (Tauri) | Electron Alternative |
-|--------|---------------|---------------------|
-| **Bundle Size** | ~15 MB | ~150 MB |
-| **Memory Usage** | ~50 MB | ~200 MB |
-| **Startup Time** | <1s | ~3s |
-| **CPU Usage (Idle)** | <1% | ~5% |
+Anything that doesn't start with `/` is sent to your Ollama model.
 
 ---
 
 ## 🔒 Security
 
-OMNIX takes security seriously:
+OMNIX is designed on the assumption that the webview **and** the LLM may be compromised or manipulated. The Rust backend is the trust boundary. See [`docs/SECURITY.md`](docs/SECURITY.md) for the full threat model.
 
-- ✅ User confirmation required for sudo operations
-- ✅ All commands logged for audit trail
-- ✅ Encrypted credential storage
-- ✅ No telemetry or data collection
-- ✅ Local-first architecture
+**Command execution**
 
-**Important:** Never commit your `.env` file. It's already in `.gitignore`.
+- The frontend cannot run shell commands directly. The single entry point (`request_execution`, also used by `/execute`) runs every command through a policy engine that parses it with shell-quoting awareness and classifies it:
+
+  | Tier | Examples | Behaviour |
+  |------|----------|-----------|
+  | **Read-only** | `ls`, `cat`, `git status`, `ps`, `df` | Runs (optionally confirmed) |
+  | **Mutating** | writes, installs, `git commit`, service changes, anything using `;` `&&` `\|` `$(…)` redirects or globs, unknown programs | Native approval dialog |
+  | **Privileged** | `sudo …`, `pkexec …` | Requires **Settings → Security → Allow privileged commands** (off by default) plus approval; elevation goes through the OS password prompt (pkexec / macOS admin prompt / UAC), and OMNIX never handles passwords |
+  | **Denied** | `rm -rf /` (and quoting, path-prefix, variable and Unicode variants), `mkfs`, raw disk writes, fork bombs, `chmod -R 777 /`, `curl … \| sh`, reading `~/.ssh`, `/etc/shadow`, cloud credentials | Never runs; cannot be overridden |
+
+- Approval dialogs are **native** (raised from Rust), show the exact command, working directory and risk tier, default to **deny**, and time out as deny.
+- Child processes get a cleared environment (`PATH`, `HOME`, `LANG`, `TERM` only), a timeout (default 60 s), a 1 MiB output cap, and are killed with their whole process group on timeout.
+- You can add your own blocked prefixes, or switch to allowlist mode.
+
+**Audit log.** Every execution, file access, process kill, secret change and security-setting change is appended to `audit.jsonl` in the app log directory (`~/.local/share/com.paulmmoore.omnix/logs/` on Linux). Each line carries the SHA-256 of the previous line, so edits and deletions are detectable (**Settings → Security → Verify audit log**). API keys and bearer tokens are redacted before writing.
+
+**Secrets.** Provider keys live only in the OS keychain. No IPC command returns a secret to the UI. Keys found in older plaintext `settings.json` files are migrated to the keychain automatically and removed from the file.
+
+**Local-only mode (default: on).** Hard-blocks cloud AI providers and any endpoint that doesn't resolve to loopback, RFC 1918, link-local, CGNAT/Tailscale (`100.64.0.0/10`) or IPv6 ULA addresses. This is enforced in Rust, not the UI. **Keep it on for machines on healthcare networks**: it prevents prompts that may contain PHI from leaving the local network. Turning it off requires a native confirmation.
+
+**Webview hardening.** Strict Content-Security-Policy (no remote origins; all network access goes through Rust). No shell, filesystem, opener, dialog, notification or clipboard plugin permissions are granted to the webview. Devtools only open in debug builds.
+
+**No telemetry.** OMNIX sends nothing anywhere except to the model endpoint you configure.
 
 ---
 
-## 🤝 Contributing
+## Technology
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+- **Frontend:** SvelteKit 5, TypeScript, Tailwind CSS
+- **Backend:** Tauri 2, Rust (tokio, reqwest, sysinfo, keyring, tracing)
+- **AI:** Ollama (local)
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```bash
-# Fork and clone
-git clone https://github.com/YOUR_USERNAME/omnix.git
-
-# Create a feature branch
-git checkout -b feature/amazing-feature
-
-# Make changes and commit
-git commit -m "Add amazing feature"
-
-# Push and create PR
-git push origin feature/amazing-feature
+git clone https://github.com/<your-username>/omnix-ai-desktop.git
+git checkout -b feature/my-change
 ```
 
----
+## License
 
-## 📄 License
+MIT, see [LICENSE](LICENSE).
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## Support
 
----
-
-## 🙏 Acknowledgments
-
-- **[Tauri Team](https://tauri.app)** - Amazing desktop framework
-- **[Svelte Team](https://svelte.dev)** - Reactive UI library
-- **[Ollama](https://ollama.ai)** - Local LLM support
-- **[OpenAI](https://openai.com)** - Whisper speech recognition
-
----
-
-## 📞 Support
-
-- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/Paulmmoore3416/omnix/issues)
-- 💬 **Discussions**: [GitHub Discussions](https://github.com/Paulmmoore3416/omnix/discussions)
-- 📧 **Email**: paulmmoore3416@gmail.com
-
----
-
-<div align="center">
-
-**Built with ❤️ using Tauri, Svelte, and Rust**
-
-⭐ Star this repo if you find it useful!
-
-[Report Bug](https://github.com/Paulmmoore3416/omnix/issues) • [Request Feature](https://github.com/Paulmmoore3416/omnix/issues)
-
-</div>
+- Bugs and feature requests: [GitHub Issues](https://github.com/paulmmoore3416/omnix-ai-desktop/issues)
+- Security issues: see [`docs/SECURITY.md`](docs/SECURITY.md) (please report privately)

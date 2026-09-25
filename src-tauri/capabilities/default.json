@@ -1,16 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": ["main"],
+  "description": "Least-privilege capability for the main window. All privileged operations are custom Rust commands gated by the policy engine; no shell, fs, opener, dialog, notification or clipboard plugin permissions are granted to the webview.",
+  "windows": [
+    "main"
+  ],
   "permissions": [
-    "core:default",
-    "opener:default",
-    "notification:default",
-    "notification:allow-is-permission-granted",
-    "notification:allow-request-permission",
-    "notification:allow-notify",
-    "notification:allow-register-action-types",
-    "notification:allow-register-listener"
+    "core:app:default",
+    "core:event:default",
+    "core:window:default",
+    "core:webview:default",
+    "core:path:default"
   ]
 }

@@ -1,0 +1,102 @@
+//! Application state managed by Tauri (`app.manage(AppState)`).
+//!
+//! Replaces the global `Lazy<Mutex<..>>` statics of earlier versions. Commands
+//! receive it as `tauri::State<'_, AppState>`.
+
+use crate::error::{AppError, AppResult};
+use crate::security::audit::AuditLog;
+use crate::security::policy::PolicyConfig;
+use crate::security::secrets::{KeyringStore, SecretStore};
+use crate::settings::{self, Settings};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use sysinfo::System;
+use tauri::{AppHandle, Manager, Runtime};
+
+/// Shared state for all commands.
+pub struct AppState {
+    /// Current settings (source of truth in memory; persisted on save).
+    pub settings: tokio::sync::RwLock<Settings>,
+    /// Serializes settings writes so a confirmation dialog cannot race
+    /// another save (time-of-check/time-of-use).
+    pub settings_write: tokio::sync::Mutex<()>,
+    /// Location of `settings.json`.
+    pub settings_path: PathBuf,
+    /// Hash-chained audit log.
+    pub audit: AuditLog,
+    /// Single shared HTTP client (connection pooling, consistent timeouts).
+    pub http: reqwest::Client,
+    /// sysinfo handle. A std mutex is fine: refreshes are short and never
+    /// held across `.await`.
+    pub system: Mutex<System>,
+    /// OS keychain (trait object so tests can substitute a memory store).
+    pub secrets: Arc<dyn SecretStore>,
+    /// User home directory.
+    pub home: Option<PathBuf>,
+}
+
+impl AppState {
+    /// Build the state during Tauri `setup`.
+    pub fn init<R: Runtime>(app: &AppHandle<R>) -> AppResult<Self> {
+        let log_dir = app
+            .path()
+            .app_log_dir()
+            .map_err(|e| AppError::Unavailable(format!("app log directory: {e}")))?;
+        let audit = AuditLog::open(log_dir.join("audit.jsonl"))?;
+        tracing::info!(path = %audit.path().display(), "audit log opened");
+
+        let secrets: Arc<dyn SecretStore> = Arc::new(KeyringStore);
+        let settings_path = settings::default_path()?;
+        let settings = settings::load(&settings_path, secrets.as_ref())?;
+
+        let http = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(300))
+            .user_agent(concat!("OMNIX/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|e| AppError::Internal(format!("HTTP client: {e}")))?;
+
+        let mut system = System::new();
+        system.refresh_cpu();
+        system.refresh_memory();
+
+        Ok(Self {
+            settings: tokio::sync::RwLock::new(settings),
+            settings_write: tokio::sync::Mutex::new(()),
+            settings_path,
+            audit,
+            http,
+            system: Mutex::new(system),
+            secrets,
+            home: dirs::home_dir(),
+        })
+    }
+
+    /// Files that executed commands may read but never modify.
+    pub fn protected_paths(&self) -> Vec<String> {
+        let mut v = vec![self.settings_path.to_string_lossy().to_string()];
+        if let Some(dir) = self.audit.path().parent() {
+            v.push(dir.to_string_lossy().to_string());
+        }
+        v
+    }
+
+    /// Policy inputs for a command running in `cwd`.
+    pub fn policy_config(&self, settings: &Settings, cwd: Option<&Path>) -> PolicyConfig {
+        PolicyConfig {
+            allowed_commands: settings.security.allowed_commands.clone(),
+            blocked_commands: settings.security.blocked_commands.clone(),
+            protected_paths: self.protected_paths(),
+            home: self.home.as_ref().map(|h| h.to_string_lossy().to_string()),
+            cwd: cwd.map(|c| c.to_string_lossy().to_string()),
+        }
+    }
+
+    /// Lock sysinfo, mapping a poisoned mutex to an error instead of panicking.
+    pub fn system(&self) -> AppResult<std::sync::MutexGuard<'_, System>> {
+        self.system
+            .lock()
+            .map_err(|_| AppError::Internal("system info lock poisoned".into()))
+    }
+}

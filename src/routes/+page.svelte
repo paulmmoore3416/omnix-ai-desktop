@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { invoke } from '@tauri-apps/api/core';
+  import { call, errorMessage } from '$lib/api';
+  import type { SystemStatus } from '$lib/types';
   import Avatar from '$lib/components/Avatar.svelte';
   import SettingsView from '$lib/components/SettingsView.svelte';
   import KnowledgeView from '$lib/components/KnowledgeView.svelte';
@@ -9,7 +10,6 @@
   let currentView = $state('home');
   let userInput = $state('');
   let messages = $state<Array<{role: string, content: string, timestamp: Date}>>([]);
-  let isListening = $state(false);
   let isSpeaking = $state(false);
   let isProcessing = $state(false);
   let avatarEmotion = $state<'idle' | 'thinking' | 'speaking' | 'working' | 'happy' | 'excited' | 'focused' | 'confused' | 'success' | 'error' | 'listening' | 'processing'>('idle');
@@ -24,7 +24,7 @@
   let commandSuggestions = $state<string[]>([]);
   let showSuggestions = $state(false);
   let isTyping = $state(false);
-  let typingTimeout: number;
+  let typingTimeout: ReturnType<typeof setTimeout> | undefined;
 
   // Performance: Debounced input handler
   function handleInputChange(value: string) {
@@ -45,16 +45,13 @@
       return;
     }
     
+    // Only commands the backend actually implements are suggested.
     const allCommands = [
-      '/execute - Execute system command',
-      '/file read - Read file content',
-      '/file write - Write to file',
-      '/search - Search files',
-      '/monitor - System monitoring',
-      '/automate - Create automation',
-      '/analyze - Analyze code/logs',
-      '/remember - Store memory',
-      '/recall - Retrieve memory'
+      '/execute - Run a shell command (changes need your approval)',
+      '/file read - Read a text file',
+      '/file list - List a directory',
+      '/file write - Write a file (needs your approval)',
+      '/monitor - System status and top processes'
     ];
     
     commandSuggestions = allCommands.filter(cmd => 
@@ -73,46 +70,38 @@
     }, 5000);
   }
 
-  const navItems = [
+  let navItems = $derived([
     { id: 'home', label: 'Home', icon: '🏠', badge: null },
     { id: 'commands', label: 'Commands', icon: '⚡', badge: null },
-    { id: 'history', label: 'History', icon: '📜', badge: messages.length },
+    { id: 'history', label: 'History', icon: '📜', badge: messages.length || null },
     { id: 'settings', label: 'Settings', icon: '⚙️', badge: null },
     { id: 'knowledge', label: 'Knowledge', icon: '🧠', badge: null },
     { id: 'system', label: 'System Control', icon: '🎛️', badge: null }
-  ];
+  ]);
 
   // Performance: Memoized filtered messages
   let recentMessages = $derived(messages.slice(-50));
 
   onMount(() => {
-    // Performance: Optimized system monitoring with adaptive intervals
+    // Adaptive status polling. `alive` + the stored handle stop the
+    // recursive timer when the component unmounts (no leaked timers).
+    let alive = true;
+    let statusTimer: ReturnType<typeof setTimeout> | undefined;
     let statusInterval = 5000;
     const updateSystemStatus = async () => {
       try {
-        const status = await invoke('get_system_status');
-        systemStatus = { ...systemStatus, ...status as typeof systemStatus };
-        
-        // Adaptive interval based on CPU usage
-        if (systemStatus.cpu > 80) {
-          statusInterval = 2000; // More frequent updates under load
-        } else {
-          statusInterval = 5000;
-        }
-      } catch (e) {
-        console.log('System status not available yet');
+        systemStatus = await call<SystemStatus>('get_system_status');
+        statusInterval = systemStatus.cpu > 80 ? 2000 : 5000;
+      } catch {
+        // Backend not ready yet; retry on the next tick.
       }
-      
-      setTimeout(updateSystemStatus, statusInterval);
+      if (alive) statusTimer = setTimeout(updateSystemStatus, statusInterval);
     };
-    
     updateSystemStatus();
 
-    // UI Enhancement: Welcome notification
-    addNotification('OMNIX initialized successfully', 'success');
-
-    // Performance: Cleanup
     return () => {
+      alive = false;
+      clearTimeout(statusTimer);
       clearTimeout(typingTimeout);
     };
   });
@@ -146,16 +135,15 @@
     isSpeaking = true;
 
     try {
-      const response = await invoke('process_command', { command: query });
-      
+      const response = await call<string>('process_command', { command: query });
+
       messages = [...messages, {
         role: 'assistant',
-        content: response as string,
+        content: response,
         timestamp: new Date()
       }];
-      
+
       avatarEmotion = 'success';
-      addNotification('Command executed successfully', 'success');
       
       setTimeout(() => {
         avatarEmotion = 'happy';
@@ -163,14 +151,15 @@
       }, 1000);
       
     } catch (error) {
+      const msg = errorMessage(error);
       messages = [...messages, {
         role: 'assistant',
-        content: `Error: ${error}`,
+        content: `Error: ${msg}`,
         timestamp: new Date()
       }];
-      
+
       avatarEmotion = 'error';
-      addNotification(`Error: ${error}`, 'error');
+      addNotification(msg, 'error');
       
       setTimeout(() => avatarEmotion = 'idle', 3000);
     } finally {
@@ -179,15 +168,8 @@
     }
   }
 
-  function toggleListening() {
-    isListening = !isListening;
-    if (isListening) {
-      avatarEmotion = 'listening';
-      addNotification('Voice recognition started', 'info');
-    } else {
-      avatarEmotion = 'idle';
-    }
-  }
+  // Voice input is not implemented yet; the mic button is disabled.
+  const voiceAvailable = false;
 
   function handleKeyPress(event: KeyboardEvent) {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -210,7 +192,7 @@
   }
 
   // Performance: Virtual scrolling for large message lists
-  let messageContainer: HTMLElement;
+  let messageContainer = $state<HTMLElement | undefined>();
   function scrollToBottom() {
     if (messageContainer) {
       messageContainer.scrollTop = messageContainer.scrollHeight;
@@ -332,7 +314,7 @@
         />
 
         <h2 class="text-4xl font-bold glow-text mb-4 mt-8">OMNIX</h2>
-        <p class="text-xl text-gray-300 mb-8">Your God Mode AI Desktop Assistant</p>
+        <p class="text-xl text-gray-300 mb-8">Your local-first AI desktop assistant</p>
 
         <!-- UI Enhancement: Quick action buttons -->
         <div class="flex gap-3 mb-8">
@@ -363,12 +345,12 @@
             <div class="text-sm text-gray-400 mt-1">Commands</div>
           </div>
           <div class="glass-panel p-4 text-center hover:scale-105 transition-transform cursor-pointer">
-            <div class="text-3xl font-bold text-cosmic-cyan">∞</div>
-            <div class="text-sm text-gray-400 mt-1">Capabilities</div>
+            <div class="text-3xl font-bold text-cosmic-cyan">{systemStatus.processes}</div>
+            <div class="text-sm text-gray-400 mt-1">Processes</div>
           </div>
           <div class="glass-panel p-4 text-center hover:scale-105 transition-transform cursor-pointer">
-            <div class="text-3xl font-bold text-green-400">100%</div>
-            <div class="text-sm text-gray-400 mt-1">Uptime</div>
+            <div class="text-3xl font-bold text-green-400">{Math.floor(systemStatus.uptime / 3600)}h</div>
+            <div class="text-sm text-gray-400 mt-1">System uptime</div>
           </div>
         </div>
       </div>
@@ -378,19 +360,18 @@
         <h2 class="text-2xl font-bold glow-text mb-6">Available Commands</h2>
         <div class="grid grid-cols-2 gap-4">
           {#each [
-            { cmd: '/execute', desc: 'Execute system command with sudo privileges', icon: '⚡' },
-            { cmd: '/file', desc: 'File operations (read, write, delete, move)', icon: '📁' },
-            { cmd: '/search', desc: 'Search files and content across system', icon: '🔍' },
-            { cmd: '/monitor', desc: 'Monitor system resources and processes', icon: '📊' },
-            { cmd: '/automate', desc: 'Create and run automation scripts', icon: '🤖' },
-            { cmd: '/analyze', desc: 'Analyze code, logs, or documents', icon: '🔬' },
-            { cmd: '/remember', desc: 'Store information in long-term memory', icon: '💾' },
-            { cmd: '/recall', desc: 'Retrieve stored memories and context', icon: '🧠' }
+            { cmd: '/execute', desc: 'Run a shell command. Commands are risk-classified; anything that changes your system opens a native approval dialog, and destructive patterns are always blocked.', icon: '⚡', planned: false },
+            { cmd: '/file', desc: 'read <path>, list <path>, or write <path> <content> (writes need approval; credential files are off-limits)', icon: '📁', planned: false },
+            { cmd: '/monitor', desc: 'System resources and top processes', icon: '📊', planned: false },
+            { cmd: '/search', desc: 'Search files and content', icon: '🔍', planned: true },
+            { cmd: '/remember', desc: 'Store information in long-term memory', icon: '💾', planned: true },
+            { cmd: '/recall', desc: 'Retrieve stored memories', icon: '🧠', planned: true }
           ] as command}
-            <div class="glass-panel p-4 hover:bg-white/10 transition-all hover:scale-105 cursor-pointer">
+            <div class="glass-panel p-4 transition-all {command.planned ? 'opacity-50' : 'hover:bg-white/10'}">
               <div class="flex items-center gap-2 mb-2">
                 <span class="text-2xl">{command.icon}</span>
                 <code class="text-cosmic-cyan font-mono font-bold">{command.cmd}</code>
+                {#if command.planned}<span class="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded">Planned</span>{/if}
               </div>
               <p class="text-sm text-gray-400">{command.desc}</p>
             </div>
@@ -464,9 +445,10 @@
 
       <div class="flex items-center gap-3">
         <button
-          class="p-3 rounded-full transition-all duration-200 {isListening ? 'bg-red-500 animate-pulse scale-110' : 'bg-cosmic-blue/20 hover:bg-cosmic-blue/30'}"
-          onclick={toggleListening}
-          title={isListening ? 'Stop listening' : 'Start voice input'}
+          class="p-3 rounded-full transition-all duration-200 bg-cosmic-blue/20 disabled:opacity-40 disabled:cursor-not-allowed"
+          disabled={!voiceAvailable}
+          title="Voice input is not available yet"
+          aria-label="Voice input (not available yet)"
         >
           <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
             <path d="M7 4a3 3 0 016 0v6a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z"/>
@@ -478,7 +460,7 @@
           value={userInput}
           oninput={(e) => handleInputChange(e.currentTarget.value)}
           onkeypress={handleKeyPress}
-          placeholder="Ask OMNIX anything... (God Mode enabled)"
+          placeholder="Ask OMNIX anything, or type / for commands"
           class="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cosmic-cyan focus:ring-2 focus:ring-cosmic-cyan/20 transition-all"
           disabled={isProcessing}
         />
