@@ -15,6 +15,7 @@ pub mod files;
 pub mod knowledge;
 pub mod settings;
 pub mod system;
+pub mod voice;
 
 use crate::error::{AppError, AppResult};
 
