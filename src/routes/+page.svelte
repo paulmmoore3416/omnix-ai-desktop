@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Channel } from '@tauri-apps/api/core';
-  import { call, errorMessage } from '$lib/api';
+  import { call, errorMessage, isAppError } from '$lib/api';
   import { listen } from '@tauri-apps/api/event';
   import { renderMarkdown } from '$lib/markdown';
   import { speak, startRecording, transcribe, type Recording } from '$lib/voice';
   import type { Settings, SystemStatus, UiEvent } from '$lib/types';
+  import { conditionForError, type Condition, type Emotion, type Signal, type SignalKind } from '$lib/avatar';
   import Avatar from '$lib/components/Avatar.svelte';
   import SettingsView from '$lib/components/SettingsView.svelte';
   import KnowledgeView from '$lib/components/KnowledgeView.svelte';
@@ -17,7 +18,7 @@
   let messages = $state<Message[]>([]);
   let isSpeaking = $state(false);
   let isProcessing = $state(false);
-  let avatarEmotion = $state<'idle' | 'thinking' | 'speaking' | 'working' | 'happy' | 'excited' | 'focused' | 'confused' | 'success' | 'error' | 'listening' | 'processing'>('idle');
+  let avatarEmotion = $state<Emotion>('idle');
   let systemStatus = $state({
     cpu: 0,
     memory: 0,
@@ -25,6 +26,32 @@
     uptime: 0,
     processes: 0
   });
+  // Avatar condition: backend reachability, system load, and recent
+  // security/network failures. Signals ripple on individual agent events.
+  let statusFailures = $state(0);
+  let recentIssue = $state<Condition | null>(null);
+  let issueGen = 0;
+  let avatarSignal = $state<Signal | null>(null);
+  let signalId = 0;
+  let avatarCondition = $derived<Condition>(
+    statusFailures >= 2
+      ? 'offline'
+      : (recentIssue ??
+          (systemStatus.cpu > 85 || systemStatus.memory > 90 ? 'strain' : 'nominal'))
+  );
+  function flagIssue(error: unknown) {
+    const c = conditionForError(isAppError(error) ? error.kind : undefined);
+    if (!c) return;
+    recentIssue = c;
+    const gen = ++issueGen;
+    later(() => {
+      if (gen === issueGen) recentIssue = null;
+    }, 6000);
+  }
+  function pulse(kind: SignalKind, label?: string, ref?: string) {
+    avatarSignal = { kind, id: ++signalId, label, ref };
+  }
+
   let notifications = $state<Array<{id: number, message: string, type: 'info' | 'success' | 'error'}>>([]);
   let commandSuggestions = $state<string[]>([]);
   let showSuggestions = $state(false);
@@ -108,8 +135,11 @@
       try {
         systemStatus = await call<SystemStatus>('get_system_status');
         statusInterval = systemStatus.cpu > 80 ? 2000 : 5000;
+        statusFailures = 0;
       } catch {
-        // Backend not ready yet; retry on the next tick.
+        // Backend not ready yet; retry on the next tick. Two misses in a row
+        // mark it offline (one miss at startup is normal).
+        statusFailures++;
       }
       if (alive) statusTimer = setTimeout(updateSystemStatus, statusInterval);
     };
@@ -117,9 +147,15 @@
 
     // Global Ctrl+Space push-to-talk (emitted by the Rust shortcut handler).
     let unlistenPtt: (() => void) | undefined;
+    // Key auto-repeat can deliver several "pressed" events; startListening()
+    // ignores all but the first because micState leaves 'idle' synchronously.
     listen<string>('ptt', (e) => {
-      if (e.payload === 'pressed') startListening();
-      else stopListening();
+      if (e.payload === 'pressed') {
+        tapMode = false;
+        startListening();
+      } else {
+        stopListening();
+      }
     }).then((u) => {
       if (alive) unlistenPtt = u;
       else u();
@@ -127,6 +163,8 @@
 
     return () => {
       unlistenPtt?.();
+      recording?.cancel();
+      clearInterval(micTicker);
       alive = false;
       clearTimeout(statusTimer);
       clearTimeout(typingTimeout);
@@ -168,6 +206,7 @@
         messages = [...messages, { role: 'assistant', content: `Error: ${msg}`, timestamp: new Date(), notes: [] }];
       }
       avatarEmotion = 'error';
+      flagIssue(error);
       addNotification(msg, 'error');
       later(() => (avatarEmotion = 'idle'), 3000);
     } finally {
@@ -189,15 +228,19 @@
           break;
         case 'tool_call':
           reply.notes.push(`🔧 ${ev.name} requested`);
+          pulse('tool', ev.name, ev.id);
           break;
         case 'tool_result':
           reply.notes.push(`${ev.ok ? '✓' : '✗'} ${ev.name}: ${ev.summary}`);
+          pulse(ev.ok ? 'ok' : 'fail', ev.name, ev.id);
           break;
         case 'notice':
           reply.notes.push(`ℹ ${ev.message}`);
+          pulse('notice');
           break;
         case 'error':
           reply.notes.push(`✗ ${ev.message}`);
+          pulse('fail');
           break;
       }
     };
@@ -221,53 +264,183 @@
     }
   }
 
-  // Push-to-talk voice input: enabled only when voice + an STT URL are configured.
+  // Push-to-talk voice input. Hold the mic (or Ctrl+Space) to talk, or tap once
+  // to start and tap again to send. Esc cancels. Enabled only when voice + an
+  // STT URL are configured; otherwise the button explains how to set it up.
+  type MicState = 'idle' | 'starting' | 'recording' | 'transcribing';
   let voiceAvailable = $state(false);
-  let isListening = $state(false);
+  let voiceSetupHint = $state('Voice input is off: configure it in Settings → Voice');
+  let micState = $state<MicState>('idle');
+  let micLevel = $state(0);
+  let micElapsed = $state(0);
+  let tapMode = $state(false);
+  let isListening = $derived(micState === 'recording' || micState === 'starting');
+  let settingsTab = $state('general');
   let recording: Recording | null = null;
+  // Set when the user releases before the microphone finished opening.
+  let stopRequested = false;
+  let pressedAt = 0;
+  let micTicker: ReturnType<typeof setInterval> | undefined;
+  /** A press shorter than this is a tap: keep recording until the next tap. */
+  const TAP_MS = 350;
+  /** Clips shorter than this almost never contain a full word. */
+  const MIN_CLIP_MS = 400;
+  /** Safety cap so a forgotten tap-mode recording can't run forever. */
+  const MAX_CLIP_MS = 120_000;
 
   async function refreshVoice() {
     try {
       const s = await call<Settings>('load_settings');
-      voiceAvailable = s.voice.enabled && s.voice.stt_url.trim() !== '';
+      const hasUrl = s.voice.stt_url.trim() !== '';
+      voiceAvailable = s.voice.enabled && hasUrl;
+      voiceSetupHint = !s.voice.enabled
+        ? 'Voice is turned off: enable it in Settings → Voice'
+        : 'Add a speech-to-text server URL in Settings → Voice';
     } catch {
       voiceAvailable = false;
     }
   }
 
+  function openVoiceSettings() {
+    addNotification(voiceSetupHint, 'info');
+    settingsTab = 'voice';
+    currentView = 'settings';
+  }
+
+  function clearMicTicker() {
+    clearInterval(micTicker);
+    micTicker = undefined;
+    micElapsed = 0;
+  }
+
   async function startListening() {
-    if (!voiceAvailable || recording || isProcessing) return;
+    if (micState !== 'idle' || isProcessing) return;
+    if (!voiceAvailable) {
+      openVoiceSettings();
+      return;
+    }
+    micState = 'starting';
+    stopRequested = false;
+    avatarEmotion = 'listening';
     try {
-      recording = await startRecording();
-      isListening = true;
-      avatarEmotion = 'listening';
+      const r = await startRecording({ onLevel: (l) => (micLevel = l) });
+      recording = r;
+      micState = 'recording';
+      const began = Date.now();
+      micTicker = setInterval(() => {
+        micElapsed = Date.now() - began;
+        if (micElapsed >= MAX_CLIP_MS) {
+          addNotification('Recording stopped at the 2-minute limit', 'info');
+          stopListening();
+        }
+      }, 200);
+      if (stopRequested) await stopListening();
     } catch (e) {
       recording = null;
+      micState = 'idle';
+      tapMode = false;
+      avatarEmotion = 'error';
       addNotification(`Microphone: ${errorMessage(e)}`, 'error');
+      later(() => (avatarEmotion = 'idle'), 2000);
     }
   }
 
   async function stopListening() {
-    if (!recording) return;
+    if (micState === 'starting') {
+      stopRequested = true;
+      return;
+    }
+    if (micState !== 'recording' || !recording) return;
     const r = recording;
     recording = null;
-    isListening = false;
+    tapMode = false;
+    clearMicTicker();
+    micState = 'transcribing';
     avatarEmotion = 'processing';
     try {
-      const { bytes, mime } = await r.stop();
+      const { bytes, mime, durationMs } = await r.stop();
+      if (durationMs < MIN_CLIP_MS) {
+        avatarEmotion = 'confused';
+        addNotification('That was too short: hold the mic while you speak, or tap once to start and again to send', 'info');
+        later(() => (avatarEmotion = 'idle'), 2000);
+        return;
+      }
       const text = await transcribe(bytes, mime);
       avatarEmotion = 'idle';
       if (text) {
+        micState = 'idle';
         userInput = text;
         await sendMessage();
       } else {
-        addNotification('No speech detected', 'info');
+        avatarEmotion = 'confused';
+        addNotification('No speech detected. Try speaking a little louder or closer to the mic', 'info');
+        later(() => (avatarEmotion = 'idle'), 2000);
       }
     } catch (e) {
       avatarEmotion = 'error';
+      flagIssue(e);
       addNotification(`Speech-to-text: ${errorMessage(e)}`, 'error');
       later(() => (avatarEmotion = 'idle'), 2000);
+    } finally {
+      micState = 'idle';
     }
+  }
+
+  function cancelListening() {
+    recording?.cancel();
+    recording = null;
+    tapMode = false;
+    clearMicTicker();
+    if (micState === 'recording') micState = 'idle';
+    avatarEmotion = 'idle';
+  }
+
+  // Mouse/touch/pen: hold-to-talk, or tap to toggle.
+  function onMicPointerDown(e: PointerEvent) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    // Keep receiving pointerup even if the pointer drifts off the button.
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    } catch {
+      // Pointer already released (e.g. a very fast tap); nothing to capture.
+    }
+    if (tapMode) {
+      stopListening();
+      return;
+    }
+    pressedAt = performance.now();
+    startListening();
+  }
+
+  function onMicPointerUp() {
+    if (!pressedAt) return;
+    const held = performance.now() - pressedAt;
+    pressedAt = 0;
+    if (held < TAP_MS && micState !== 'idle') {
+      tapMode = true; // quick tap: keep recording until the next tap
+      stopRequested = false;
+    } else {
+      stopListening();
+    }
+  }
+
+  // Keyboard: Enter/Space on the focused button toggles recording.
+  function onMicKeyDown(e: KeyboardEvent) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    if (e.repeat) return;
+    if (micState === 'idle') {
+      tapMode = true;
+      startListening();
+    } else {
+      stopListening();
+    }
+  }
+
+  function formatElapsed(ms: number) {
+    const s = Math.floor(ms / 1000);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   }
 
   async function speakMessage(text: string) {
@@ -293,6 +466,11 @@
     } else if (event.key === 'Escape') {
       showSuggestions = false;
     }
+  }
+
+  // Esc cancels an in-progress recording from anywhere in the window.
+  function handleWindowKeyDown(event: KeyboardEvent) {
+    if (event.key === 'Escape' && micState === 'recording') cancelListening();
   }
 
   function selectSuggestion(suggestion: string) {
@@ -321,6 +499,8 @@
     }
   });
 </script>
+
+<svelte:window onkeydown={handleWindowKeyDown} />
 
 <div class="flex h-screen w-screen overflow-hidden cosmic-gradient">
   <!-- UI Enhancement: Animated background particles with performance optimization -->
@@ -366,7 +546,10 @@
         <button
           class="w-full text-left px-4 py-3 rounded-lg transition-all duration-200 flex items-center gap-3 relative
                  {currentView === item.id ? 'bg-cosmic-blue/20 text-cosmic-cyan border border-cosmic-blue/50 scale-105' : 'hover:bg-white/5 text-gray-300 hover:scale-102'}"
-          onclick={() => currentView = item.id}
+          onclick={() => {
+            settingsTab = 'general';
+            currentView = item.id;
+          }}
         >
           <span class="text-xl">{item.icon}</span>
           <span class="font-medium">{item.label}</span>
@@ -427,6 +610,11 @@
           emotion={avatarEmotion}
           isSpeaking={isSpeaking}
           isWorking={isProcessing}
+          micLevel={micLevel}
+          condition={avatarCondition}
+          signal={avatarSignal}
+          cpu={systemStatus.cpu}
+          memory={systemStatus.memory}
         />
 
         <h2 class="text-4xl font-bold glow-text mb-4 mt-8">OMNIX</h2>
@@ -536,7 +724,7 @@
     {:else if currentView === 'settings'}
       <!-- Settings View -->
       <div class="flex-1 overflow-hidden animate-fade-in">
-        <SettingsView />
+        <SettingsView initialTab={settingsTab} />
       </div>
     {:else if currentView === 'knowledge'}
       <!-- Knowledge View -->
@@ -576,19 +764,58 @@
       {/if}
 
       <div class="flex items-center gap-3">
-        <button
-          class="p-3 rounded-full transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed {isListening ? 'bg-red-500 animate-pulse scale-110' : 'bg-cosmic-blue/20 hover:bg-cosmic-blue/30'}"
-          disabled={!voiceAvailable || isProcessing}
-          onpointerdown={startListening}
-          onpointerup={stopListening}
-          onpointerleave={stopListening}
-          title={voiceAvailable ? 'Hold to talk (or hold Ctrl+Space)' : 'Voice input is off: configure it in Settings → Voice'}
-          aria-label="Push to talk"
-        >
-          <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-            <path d="M7 4a3 3 0 016 0v6a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z"/>
-          </svg>
-        </button>
+        <div class="relative flex items-center">
+          <button
+            class="mic-btn relative p-3 rounded-full select-none touch-none disabled:opacity-40 disabled:cursor-not-allowed
+                   {isListening ? 'bg-red-500 text-white' : micState === 'transcribing' ? 'bg-cosmic-purple/40' : voiceAvailable ? 'bg-cosmic-blue/20 hover:bg-cosmic-blue/30' : 'bg-white/5 text-gray-400 hover:bg-white/10'}"
+            style="--level: {micLevel};"
+            class:recording={micState === 'recording'}
+            disabled={isProcessing || micState === 'transcribing'}
+            onpointerdown={onMicPointerDown}
+            onpointerup={onMicPointerUp}
+            onpointercancel={onMicPointerUp}
+            onkeydown={onMicKeyDown}
+            oncontextmenu={(e) => e.preventDefault()}
+            title={!voiceAvailable
+              ? `${voiceSetupHint} (click to open)`
+              : tapMode
+                ? 'Recording: tap again to send, Esc to cancel'
+                : 'Hold to talk, or tap to start/stop (Ctrl+Space works anywhere)'}
+            aria-label={isListening ? 'Stop recording and send' : 'Push to talk'}
+            aria-pressed={isListening}
+          >
+            {#if micState === 'recording'}
+              <span class="mic-ring" aria-hidden="true"></span>
+            {/if}
+            {#if micState === 'transcribing' || micState === 'starting'}
+              <svg class="animate-spin w-6 h-6" viewBox="0 0 24 24" aria-hidden="true">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+              </svg>
+            {:else}
+              <svg class="relative w-6 h-6" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+                <path d="M7 4a3 3 0 016 0v6a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z"/>
+              </svg>
+            {/if}
+            {#if !voiceAvailable}
+              <span class="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-yellow-400 border-2 border-cosmic-dark" aria-hidden="true"></span>
+            {/if}
+          </button>
+          {#if micState === 'recording'}
+            <div class="ml-2 flex items-center gap-2 text-xs text-red-300 font-mono" aria-live="polite">
+              <span class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+              {formatElapsed(micElapsed)}
+              <span class="flex items-end gap-0.5 h-4" aria-hidden="true">
+                {#each [0.5, 0.8, 1, 0.8, 0.5] as w}
+                  <span class="w-1 rounded-sm bg-red-400 transition-[height] duration-75" style="height: {Math.max(15, micLevel * w * 100)}%"></span>
+                {/each}
+              </span>
+              <span class="text-gray-400 font-sans">{tapMode ? 'tap to send · Esc cancels' : 'release to send'}</span>
+            </div>
+          {:else if micState === 'transcribing'}
+            <span class="ml-2 text-xs text-cosmic-cyan" aria-live="polite">Transcribing…</span>
+          {/if}
+        </div>
 
         <input
           type="text"
@@ -690,6 +917,28 @@
     text-decoration: underline;
     color: #7dd3fc;
     cursor: help;
+  }
+
+  /* Push-to-talk: a ring that swells with the live input level. */
+  .mic-btn {
+    transition: background-color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+  }
+  .mic-btn.recording {
+    transform: scale(1.08);
+    box-shadow: 0 0 calc(8px + var(--level) * 28px) rgba(239, 68, 68, 0.75);
+  }
+  .mic-ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    border: 2px solid rgba(248, 113, 113, 0.8);
+    transform: scale(calc(1 + var(--level) * 0.6));
+    opacity: calc(0.35 + var(--level) * 0.65);
+    transition: transform 0.08s linear, opacity 0.08s linear;
+    pointer-events: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .mic-ring { transition: none; }
   }
 
   .animate-slide-in {

@@ -1,11 +1,14 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import { call, errorMessage } from '$lib/api';
   import type { Settings, VerifyReport } from '$lib/types';
+  import { startRecording, transcribe } from '$lib/voice';
   import SecretField from './SecretField.svelte';
   import McpServers from './McpServers.svelte';
 
-  let activeTab = $state('general');
+  let { initialTab = 'general' }: { initialTab?: string } = $props();
+  // Seeded once from the prop so the page can deep-link (e.g. mic → Voice tab).
+  let activeTab = $state(untrack(() => initialTab));
   let settings = $state<Settings | null>(null);
   let loadError = $state('');
   let isSaving = $state(false);
@@ -69,6 +72,43 @@
       flash('error', errorMessage(e), 8000);
     } finally {
       testingConnection = null;
+    }
+  }
+
+  // Microphone self-test: records a short clip against the *saved* settings
+  // (the OS-level mic grant follows them), then transcribes it.
+  let micTest = $state<{ phase: 'idle' | 'recording' | 'transcribing'; level: number; peak: number; result: string }>({
+    phase: 'idle',
+    level: 0,
+    peak: 0,
+    result: ''
+  });
+  const MIC_TEST_MS = 4000;
+
+  async function testMicrophone() {
+    if (micTest.phase !== 'idle') return;
+    micTest = { phase: 'recording', level: 0, peak: 0, result: '' };
+    try {
+      const rec = await startRecording({
+        onLevel: (l) => {
+          micTest.level = l;
+          micTest.peak = Math.max(micTest.peak, l);
+        }
+      });
+      await new Promise((r) => setTimeout(r, MIC_TEST_MS));
+      const { bytes, mime } = await rec.stop();
+      if (micTest.peak < 0.05) {
+        micTest.result = '⚠ The microphone opened but picked up almost no sound. Check the input device and its volume.';
+        return;
+      }
+      micTest.phase = 'transcribing';
+      const text = await transcribe(bytes, mime);
+      micTest.result = text ? `✓ Heard: “${text}”` : '⚠ Audio reached the server but no words were recognized.';
+    } catch (e) {
+      micTest.result = `✗ ${errorMessage(e)}`;
+    } finally {
+      micTest.phase = 'idle';
+      micTest.level = 0;
     }
   }
 
@@ -394,7 +434,7 @@
           <div class="space-y-6">
             <h3 class="text-xl font-bold text-cosmic-cyan mb-4">Voice</h3>
             <div class="glass-panel p-4 bg-white/5 text-sm text-gray-300">
-              Push-to-talk only: hold the mic button (or <kbd>Ctrl</kbd>+<kbd>Space</kbd>) to record. Speech-to-text uses a faster-whisper server with an OpenAI-compatible <code>/v1/audio/transcriptions</code> endpoint; text-to-speech runs Piper locally.
+              Push-to-talk only: hold the mic button (or <kbd>Ctrl</kbd>+<kbd>Space</kbd>) to record, or tap it once to start and again to send. <kbd>Esc</kbd> cancels. Speech-to-text uses a faster-whisper server with an OpenAI-compatible <code>/v1/audio/transcriptions</code> endpoint; text-to-speech runs Piper locally.
             </div>
             <div class="space-y-4">
               <label class="flex items-center justify-between">
@@ -432,6 +472,27 @@
                   <label for="tts-voice" class="block text-sm font-medium mb-2">Piper voice / model</label>
                   <input id="tts-voice" type="text" bind:value={settings.voice.tts_voice} placeholder="en_US-lessac-medium" class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 font-mono" />
                 </div>
+              </div>
+              <div class="glass-panel p-4 bg-white/5 space-y-3">
+                <div class="flex items-center justify-between gap-4">
+                  <div>
+                    <div class="text-sm font-medium">Test microphone</div>
+                    <p class="text-xs text-gray-400">Save first, then say a short sentence. Records {MIC_TEST_MS / 1000} seconds and transcribes it.</p>
+                  </div>
+                  <button
+                    onclick={testMicrophone}
+                    disabled={micTest.phase !== 'idle'}
+                    class="px-4 py-2 bg-cosmic-blue/30 hover:bg-cosmic-blue/50 rounded-lg text-sm font-medium transition-all disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {micTest.phase === 'recording' ? '🎙 Listening…' : micTest.phase === 'transcribing' ? '⏳ Transcribing…' : '🎙 Test microphone'}
+                  </button>
+                </div>
+                <div class="h-2 bg-white/10 rounded-full overflow-hidden" aria-hidden="true">
+                  <div class="h-full bg-gradient-to-r from-green-400 via-cosmic-cyan to-red-400 transition-[width] duration-75" style="width: {micTest.level * 100}%"></div>
+                </div>
+                {#if micTest.result}
+                  <p class="text-sm {micTest.result.startsWith('✓') ? 'text-green-300' : micTest.result.startsWith('✗') ? 'text-red-300' : 'text-yellow-300'}">{micTest.result}</p>
+                {/if}
               </div>
               <div class="flex items-center justify-between opacity-60">
                 <span class="text-sm">Continuous listening</span>
