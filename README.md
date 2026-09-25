@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Tauri](https://img.shields.io/badge/Tauri-2-orange.svg)](https://tauri.app)
 [![Svelte](https://img.shields.io/badge/Svelte-5-red.svg)](https://svelte.dev)
-[![Rust](https://img.shields.io/badge/Rust-1.80+-orange.svg)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/Rust-1.95+-orange.svg)](https://www.rust-lang.org)
 
 **OMNIX** is a desktop assistant built with Tauri 2, SvelteKit and Rust. It talks to a local LLM (Ollama) and can run commands on your machine, but only through a policy engine, native approval dialogs and a tamper-evident audit log.
 
@@ -24,7 +24,8 @@
 | Chat with a local Ollama model | ✅ |
 | `/execute` shell commands, risk-classified, with native approval for anything that changes the system | ✅ |
 | `/file read`, `/file list`, `/file write` (writes need approval, credential files are off-limits) | ✅ |
-| `/monitor` and the System Control view (CPU, memory, processes, ending a process) | ✅ |
+| `/monitor` and the System Control view (CPU, memory, swap, disk, network, temperature, processes, ending a process) | ✅ |
+| Launch at login (Settings → General) | ✅ |
 | API keys stored in the OS keychain | ✅ |
 | Hash-chained, redacted audit log with a **Verify** button | ✅ |
 | Local-only mode (blocks cloud providers and non-local endpoints) | ✅ on by default |
@@ -43,7 +44,7 @@ Anything marked planned is visibly disabled in the app and returns a `not_implem
 
 ### Prerequisites
 
-- Node.js 22 LTS and npm
+- Node.js 24 LTS (22+ works) and npm
 - Rust (stable) via [rustup](https://rustup.rs)
 - Platform dependencies for Tauri: see the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
   - Linux: `libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libayatana-appindicator3-dev librsvg2-dev`, a polkit agent (for `pkexec`), and a Secret Service provider (GNOME Keyring or KWallet) for key storage
@@ -72,7 +73,7 @@ To use a local model:
 ollama pull llama3.1        # or any model you prefer
 ```
 
-Then open **Settings → AI Models**, click **Test Connection** to list installed models, type the model name, and save.
+Then open **Settings → AI Models**, pick the model from the list (OMNIX reads the installed models from Ollama's `/api/tags`; no model is hardcoded), and save.
 
 ---
 
@@ -121,6 +122,33 @@ OMNIX is designed on the assumption that the webview **and** the LLM may be comp
 **No telemetry.** OMNIX sends nothing anywhere except to the model endpoint you configure.
 
 ---
+
+## Architecture
+
+```mermaid
+flowchart LR
+    UI["Webview<br/>SvelteKit 5<br/>(untrusted)"] -- "Tauri IPC" --> CMD["commands/*"]
+    CMD --> SEC["security/*<br/>policy · confirm · executor<br/>files · audit · secrets"]
+    CMD --> AI["ai/*<br/>local_only guard · Ollama"]
+    CMD --> SYS["system/*<br/>metrics · processes"]
+    CMD --> SET["settings<br/>(no secrets)"]
+    SEC --> OS[(OS)]
+    SEC --> KC[(Keychain)]
+    SEC --> LOG[(audit.jsonl)]
+    SEC -.-> DLG[[Native dialog]]
+    AI --> OL[(Ollama)]
+```
+
+The Rust backend is the trust boundary; the webview can only call registered commands. Details, sequence diagrams and design decisions: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+## Development
+
+```bash
+npm run check                     # svelte-check
+npm test                          # Vitest
+cd src-tauri && cargo test        # Rust unit tests
+cargo clippy --all-targets -- -D warnings
+```
 
 ## Technology
 

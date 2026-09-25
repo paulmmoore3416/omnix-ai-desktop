@@ -76,6 +76,72 @@ and a dev launch (clean startup, settings migration applied).
 Windows and were not exercised here; audit-log tail truncation is not detectable
 locally; DNS rebinding against `local_only` host checks.
 
+### Phase 2: Hardening & hygiene (`fix/phase-2-hardening`)
+
+**Correctness**
+- Process/metric sorting uses `f32::total_cmp`; no `unwrap()`/`expect()`
+  remains on runtime paths (only the setup-time `run().expect` and a static,
+  tested regex).
+- Real metrics via a `Monitor` that refreshes only what each call needs:
+  disk usage (`sysinfo::Disks`, pseudo-filesystems and duplicate mounts
+  excluded), network rx/tx bytes/s (`Networks` deltas, loopback excluded),
+  hottest sensor temperature (`Components`), each `null` when unavailable.
+  CPU sampling honours `MINIMUM_CPU_UPDATE_INTERVAL`. The hardcoded 45 °C is gone.
+
+**Dependencies**
+- Rust: `reqwest` 0.11 → 0.13 (rustls), `sysinfo` 0.30 → 0.39, `dirs` 5 → 7;
+  `Cargo.lock` is now committed (removed from `.gitignore`).
+- npm: removed unused `axios`; `marked` 11 → 18 (not yet used); updates within
+  current majors; added `@types/node`; `cookie` pinned to `^0.7.2` via
+  `overrides` (GHSA-pxg6-pf52-xh8x, transitive through SvelteKit).
+- `npm audit`: 0 vulnerabilities. `cargo audit`: 0 vulnerabilities; 7
+  informational warnings (unmaintained `unic-*`, `proc-macro-error`; unsound
+  `glib::VariantStrIter`), all transitive through Tauri's GTK3 stack and not
+  fixable in this repo.
+
+**Desktop / config**
+- Deleted `omnix-autostart.desktop` (hardcoded `/home/paul/...` path). Replaced
+  by `tauri-plugin-autostart`, driven from Rust by `general.auto_start` on
+  startup and on save.
+- `.env.example` is developer-only (`RUST_LOG`, `TAURI_DEV_HOST`); the app
+  never reads `.env`.
+- No default Ollama model. New `list_ollama_models` command reads `/api/tags`,
+  and Settings shows a dropdown of installed models.
+- Setup scripts: Node 22+ required, `npm ci`, removed redundant
+  `cargo install tauri-cli || true`.
+
+**CI**
+- `ci.yml` rewritten: no `|| echo` / `|| true` masks; `dtolnay/rust-toolchain`
+  (replaces archived `actions-rs`), `Swatinem/rust-cache`, Node 24 LTS; jobs
+  for svelte-check, Vitest, build, `npm audit`, `cargo fmt --check`,
+  `cargo clippy -D warnings`, `cargo test`, `cargo audit`, TruffleHog secret
+  scan, and a Linux/macOS/Windows compile matrix. Every third-party action is
+  pinned to a commit SHA.
+- New `release.yml`: tag-triggered `tauri-apps/tauri-action` draft releases
+  with documented (commented-out) signing secrets.
+
+**Tests**
+- Vitest + @testing-library/svelte + jsdom; `npm test`. 9 tests: API/error
+  helpers, write-only `SecretField`, KnowledgeView disabled states.
+- Rust: 75 tests (adds metrics tests).
+
+**Svelte**
+- All timers are cleaned up on unmount (`+page` status poller, notification
+  and avatar-emotion timeouts, Avatar animation timeouts/intervals,
+  SettingsView banner); System Control polling skips ticks while a request is
+  in flight. Every `invoke` goes through the typed `call<T>()` wrapper with
+  types mirroring the Rust structs. Accessibility: all form labels are
+  associated with their controls (svelte-check: 0 errors, 0 warnings).
+
+**Docs**
+- README: repository URLs and clone instructions fixed, Architecture section
+  with a Mermaid diagram. New `docs/ARCHITECTURE.md` (module map, request
+  sequence, decisions, testing, release signing).
+
+**Residual risk:** transitive GTK3/glib advisories (upstream Tauri); the
+three-OS build job and release workflow have not run yet (first run happens
+on push).
+
 ## [1.0.0] - 2026-06-03
 
 ### Added

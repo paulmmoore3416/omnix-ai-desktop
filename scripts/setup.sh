@@ -11,14 +11,14 @@ echo ""
 
 # Check for Node.js
 if ! command -v node &> /dev/null; then
-    echo "❌ Node.js is not installed. Please install Node.js 18+ first."
+    echo "❌ Node.js is not installed. Please install Node.js 22+ (24 LTS recommended) first."
     echo "   Visit: https://nodejs.org/"
     exit 1
 fi
 
 NODE_VERSION=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
-if [ "$NODE_VERSION" -lt 18 ]; then
-    echo "❌ Node.js version 18+ is required. Current version: $(node -v)"
+if [ "$NODE_VERSION" -lt 22 ]; then
+    echo "❌ Node.js version 22+ is required. Current version: $(node -v)"
     exit 1
 fi
 
@@ -81,15 +81,10 @@ case "${OS}" in
         ;;
 esac
 
-# Install npm dependencies
+# Install npm dependencies (includes the Tauri CLI, @tauri-apps/cli)
 echo ""
 echo "📦 Installing npm dependencies..."
-npm install
-
-# Install Tauri CLI
-echo ""
-echo "🦀 Installing Tauri CLI..."
-cargo install tauri-cli --version "^2.0.0" || true
+npm ci
 
 echo ""
 echo "✅ Setup complete!"
@@ -102,4 +97,3 @@ echo "   npm run tauri build"
 echo ""
 echo "📚 For more information, see README.md"
 
-# Made with Bob
