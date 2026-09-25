@@ -34,6 +34,12 @@ pub struct AppState {
     pub secrets: Arc<dyn SecretStore>,
     /// User home directory.
     pub home: Option<PathBuf>,
+    /// Chat history for the agent loop (excludes the system prompt). The
+    /// mutex also serializes turns: a second message while one is streaming
+    /// is rejected.
+    pub conversation: tokio::sync::Mutex<Vec<crate::ai::provider::ChatMessage>>,
+    /// Set by `chat_cancel`; checked between stream events and tool calls.
+    pub chat_cancel: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {
@@ -66,6 +72,8 @@ impl AppState {
             monitor: Mutex::new(Monitor::new()),
             secrets,
             home: dirs::home_dir(),
+            conversation: tokio::sync::Mutex::new(Vec::new()),
+            chat_cancel: std::sync::atomic::AtomicBool::new(false),
         })
     }
 

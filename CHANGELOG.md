@@ -142,6 +142,55 @@ locally; DNS rebinding against `local_only` host checks.
 three-OS build job and release workflow have not run yet (first run happens
 on push).
 
+### Phase 3: Intelligence layer (`feat/phase-3-intelligence`)
+
+**Added**
+- `ai::provider::LlmProvider` trait (`list_models`, `chat_stream`,
+  `health_check`) with provider-neutral messages, tool calls and stream events.
+- Providers:
+  - **Ollama**: streaming `/api/chat` (NDJSON) with native tool calling;
+    falls back to answering without tools (with a visible notice) when the
+    model doesn't support tools.
+  - **Anthropic**: raw-HTTP Messages API over SSE, `eager_input_streaming`
+    tools, defensive JSON parsing, `refusal`/`max_tokens` handling, verbatim
+    replay of thinking blocks, paginated `GET /v1/models`, no sampling params.
+  - **OpenAI-compatible** (OpenAI, xAI, Gemini): SSE with fragmented
+    `tool_calls`, `max_completion_tokens` for OpenAI, retry without
+    `temperature` for models that reject it.
+- Cloud providers are blocked in Rust while `local_only` is on; keys come only
+  from the keychain. No model id is hardcoded anywhere: `list_models` /
+  `list_ollama_models` discover them, and Settings shows dropdowns.
+- Streaming chat: `chat_send(message, Channel<UiEvent>)`, `chat_cancel`,
+  `chat_reset`; conversation kept in Rust state with context-window-aware
+  truncation (honours `ai.context_window`, `ai.max_tokens`,
+  `ai.temperature`).
+- Agent loop (`ai::agent`): tools `run_command`, `read_file`,
+  `list_directory`, `search_memory`. Every call goes through the Phase 1
+  policy engine / file guard as `source: llm_tool` (Mutating/Privileged always
+  natively confirmed), output is wrapped in escaped
+  `<tool_result untrusted="true">` blocks, the system prompt forbids following
+  instructions from tool output, one tool round per message unless
+  `autonomous_mode` (then `max_autonomous_steps`).
+- `test_ai_model` runs a real provider health check and model-availability
+  check.
+- Chat UI renders assistant Markdown via `marked` + DOMPurify (scripts,
+  iframes, forms, media, styles, `on*` handlers removed; links neutralised),
+  shows tool activity, and has Stop / Clear.
+- Memory: `MemoryStore` trait + `KbCoreStore` REST adapter configured by
+  `memory.backend_url` (empty = disabled, clear UI state) and an optional
+  keychain token (`kb_core`). `save_memory`, `delete_memory`,
+  `semantic_search`, `index_document` are now real. Contract documented in
+  `docs/kb-core-contract.md` (**needs owner confirmation**).
+- Removed remaining Chroma references.
+
+**Tests:** Rust 100 unit tests (+1 opt-in live Ollama test, passing against
+`granite-code:8b`), Vitest 14 (adds sanitizer tests).
+
+**Residual risk:** end-to-end tool calling was verified with unit tests
+(stream parsers, agent helpers), not a live tool-capable model; the kb-core
+contract is assumed; cloud providers were not exercised against live APIs
+(no keys configured on this machine).
+
 ## [1.0.0] - 2026-06-03
 
 ### Added

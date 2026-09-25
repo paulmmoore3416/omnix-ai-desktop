@@ -39,7 +39,7 @@ This document highlights OMNIX as a portfolio project, demonstrating technical s
 ### AI/ML
 - **Local LLMs** - Ollama, LM Studio integration
 - **Cloud APIs** - OpenAI, Anthropic, X.AI, Google
-- **Vector Databases** - Chroma, LanceDB for memory
+- **Long-term memory** - external kb-core service (PostgreSQL/pgvector) via a REST adapter
 - **Speech** - Whisper (STT), Piper (TTS)
 
 ### DevOps

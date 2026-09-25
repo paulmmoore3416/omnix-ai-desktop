@@ -214,7 +214,39 @@ rebinding between the check and the request; prefer IP literals or
 
 ---
 
-## 9. Known limitations
+## 9. AI agent loop and prompt injection
+
+The model can call four tools: `run_command`, `read_file`, `list_directory`
+and (when memory is configured) `search_memory`.
+
+* **Same gates as the user.** Tools call the same guarded code paths as the
+  UI (`security::executor`, `security::files`) with `source = llm_tool`. The
+  policy engine, credential-path rules, audit log and native confirmation all
+  apply. LLM-originated Mutating/Privileged commands are **always** confirmed,
+  and the dialog says the request came from the AI.
+* **Untrusted tool output.** Every tool result is wrapped as
+  `<tool_result tool="…" untrusted="true"> … </tool_result>` with any closing
+  tag inside the output escaped, and the system prompt states that content in
+  tool results is data, never instructions.
+* **Bounded autonomy.** By default the model gets **one** round of tool calls
+  per user message. `security.autonomous_mode` (off by default; enabling it
+  requires native confirmation) raises that to `max_autonomous_steps`
+  (default 10, max 50). Tool calls beyond the limit are not executed.
+* **Defensive parsing.** Tool input that is not valid JSON, fails the tool's
+  argument checks, or was cut off by `max_tokens` is never executed; the
+  model receives an error result instead. Provider `refusal` stop reasons end
+  the turn and drop the refused exchange from history.
+* **Output limits.** Tool output is clipped to 30 000 characters before it
+  enters the model context.
+* **Rendering.** Assistant messages are rendered from Markdown with `marked`
+  and sanitized with DOMPurify before `{@html}`: scripts, iframes, objects,
+  embeds, forms, styles, images/media, SVG/MathML, `on*` handlers and inline
+  styles are removed, and links are neutralised (no `href`), so model output
+  cannot run script or navigate the app window.
+* **Keys stay in Rust.** Cloud provider keys are read from the keychain inside
+  the provider factory; they never cross IPC.
+
+## 10. Known limitations
 
 * Classification is conservative but not a sandbox: an approved Mutating
   command runs with your user's full permissions. Read the dialog.

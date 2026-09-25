@@ -37,8 +37,18 @@ flowchart TB
         end
 
         subgraph ai["ai/*"]
+            agent["agent<br/>tool loop, untrusted wrapping"]
+            providerT["provider<br/>LlmProvider trait"]
+            ollama["ollama<br/>/api/chat NDJSON"]
+            anthropic["anthropic<br/>Messages SSE"]
+            openai["openai_compat<br/>OpenAI / xAI / Gemini"]
             endpoint["endpoint<br/>local_only guard"]
-            ollama["ollama"]
+            ctx["context<br/>truncation"]
+        end
+
+        subgraph memory["memory/*"]
+            store["MemoryStore trait"]
+            kbcore["kb_core<br/>REST adapter"]
         end
 
         subgraph system["system/*"]
@@ -65,7 +75,17 @@ flowchart TB
         files --> audit
         processes --> confirm
         processes --> audit
+        agent --> providerT
+        providerT --> ollama
+        providerT --> anthropic
+        providerT --> openai
+        agent --> ctx
+        agent --> executor
+        agent --> files
+        agent --> store
+        store --> kbcore
         ollama --> endpoint
+        kbcore --> endpoint
         state --- settings
         state --- audit
         state --- secrets
@@ -76,6 +96,9 @@ flowchart TB
     secrets --> KC[(Keychain)]
     audit --> LOG[(audit.jsonl)]
     ollama --> OL[(Ollama)]
+    anthropic --> CLOUD[(Cloud APIs<br/>blocked when local_only)]
+    openai --> CLOUD
+    kbcore --> KB[(kb-core)]
     confirm --> DLG[[Native dialog]]
 ```
 
@@ -103,6 +126,26 @@ sequenceDiagram
     C-->>UI: formatted text
 ```
 
+## Chat flow (streaming + tools)
+
+```mermaid
+sequenceDiagram
+    participant UI as Webview
+    participant A as ai::agent
+    participant P as LlmProvider
+    participant T as Tools (executor/files/memory)
+    UI->>A: chat_send(message, Channel)
+    loop up to 1 tool round (or max_autonomous_steps)
+        A->>P: chat_stream(system + truncated history, tools)
+        P-->>A: Token… / ToolCall… / Done(stop_reason)
+        A-->>UI: token / tool_call events
+        A->>T: run each call (source=llm_tool → policy → confirm → audit)
+        T-->>A: output (wrapped as untrusted)
+        A-->>UI: tool_result events
+    end
+    A-->>UI: done
+```
+
 ## Key decisions
 
 | Decision | Why |
@@ -114,6 +157,9 @@ sequenceDiagram
 | `NotImplemented` instead of fake success | Honest UI: unimplemented controls are disabled, never "succeed". |
 | Tauri managed state instead of globals | Testable, explicit lifetimes, no hidden initialization order. |
 | One shared `reqwest::Client` | Connection pooling and consistent timeouts. |
+| Own agent loop on a small `LlmProvider` trait | Every tool call must pass the policy engine; a framework would hide that seam. |
+| Streaming over Tauri `Channel` | Ordered, per-request event delivery without global event names. |
+| Model ids discovered at runtime | Providers add/retire models; hardcoded ids go stale. |
 
 ## Directory layout
 
@@ -128,7 +174,8 @@ src-tauri/
   src/main.rs                calls omnix_lib::run()
   src/commands/              IPC surface
   src/security/              policy, confirm, executor, elevation, files, audit, secrets
-  src/ai/                    endpoint guard, providers
+  src/ai/                    providers, agent loop, context, endpoint guard
+  src/memory/                MemoryStore + kb-core adapter
   src/system/                metrics, processes
   src/settings.rs            persisted configuration
   src/state.rs               AppState

@@ -31,6 +31,7 @@ pub const PROVIDERS: &[&str] = &[
     "google_drive",
     "jira",
     "notion",
+    "kb_core",
 ];
 
 /// Abstraction over the keychain so tests can use an in-memory store.

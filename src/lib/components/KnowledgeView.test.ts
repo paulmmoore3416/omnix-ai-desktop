@@ -28,7 +28,7 @@ afterEach(cleanup);
 describe('KnowledgeView honest stubs', () => {
   it('shows the not-available banner and disables unimplemented controls', async () => {
     render(KnowledgeView);
-    expect(await screen.findByText(/Persistent memory and document indexing are not implemented yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/Long-term memory is disabled/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Export/ })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Import/ })).toBeDisabled();
     expect(screen.getByRole('button', { name: /Optimize/ })).toBeDisabled();
