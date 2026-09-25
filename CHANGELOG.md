@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### One-command deployment and docs refresh
+
+**Added**
+- `scripts/bootstrap.sh`: idempotent end-to-end setup for Ubuntu/Debian. Installs system packages, Rust,
+  Node 24, npm/cargo dependencies; Ollama as a systemd service (flash attention, keep-alive drop-in) with
+  `qwen3:8b` + `qwen3:14b`; Speaches speech-to-text in Docker on the smallest NVIDIA GPU (CUDA image, model
+  pre-downloaded); Piper TTS in a private venv with a voice; seeds `~/.config/omnix/settings.json` (fills
+  blanks only, keeps a backup, mode 600); builds and installs the `.deb`. Flags: `--services-only`,
+  `--no-services`, `--lan`, `--cpu`, `--yes`. The NVIDIA driver is deliberately not auto-installed.
+- `scripts/doctor.sh`: read-only health check (toolchains, binary, GPUs, settings, Ollama round-trip, STT
+  model, Piper voice, container, Secret Service); non-zero exit on failure.
+- `docs/SERVER_DEPLOYMENT.md`: layouts (all-in-one vs GPU server + clients), GPU/VRAM plan for 8 GB + 6 GB
+  cards, LAN firewalling, operations, uninstall, troubleshooting.
+- `CLAUDE.md`: runbook for Claude Code agents (install procedure, human-only steps, diagnosis table, quality
+  gate, security invariants).
+
+**Changed**
+- README quick start is now bootstrap-first; User Guide setup/voice/troubleshooting, Project Overview and
+  Showcase updated for the holographic avatar, Speaches and the new scripts. `scripts/setup.sh` adds
+  `libxdo-dev` and points apt users to `bootstrap.sh`.
+- Documented that Piper's voice setting must be an absolute `.onnx` path (a bare voice name does not resolve
+  when OMNIX launches Piper).
+- The stale 1.0.0 "Planned Features" list is now a roadmap with shipped items marked.
+
+### Voice input reliability and avatar animation
+
+**Fixed**
+- Microphone button: releasing before the microphone finished opening left a
+  recording running forever; Ctrl+Space key auto-repeat could start several
+  recordings at once. Push-to-talk is now a single state machine
+  (`idle → starting → recording → transcribing`).
+- A quick click recorded ~0 s of audio and failed. Tapping now toggles
+  recording (tap to start, tap to send); holding still works. Clips under
+  0.4 s are rejected with a clear hint.
+- The mic button was silently disabled when voice was not configured. It now
+  shows a setup badge and opens Settings → Voice with an explanation.
+- Recording no longer depends on MediaRecorder codecs in the webview: audio is
+  captured with Web Audio and encoded in-app to 16 kHz mono WAV (MediaRecorder
+  remains a fallback). getUserMedia errors are mapped to actionable messages.
+- Read-aloud now keeps the avatar speaking until playback actually ends.
+
+**Added**
+- Live input-level ring and meter, recording timer, Esc to cancel, 2-minute
+  safety cap, keyboard (Enter/Space) control of the mic button.
+- Settings → Voice → **Test microphone** (level check + round-trip transcription).
+- Avatar rewritten around a damped target-pose rig: smooth transitions between
+  every activity, spring squash-and-stretch, eased steering locomotion,
+  transform-only rendering and colour cross-fades. New behaviours: mic-reactive
+  listening, thinking pose, typing on a laptop, lip-sync, confetti
+  celebration, head shake on error, look-around, stretch/yawn, bow, backflip,
+  jetpack flights, naps, cursor-tracking eyes and click-to-play. Honours
+  prefers-reduced-motion.
+- `docs/USER_GUIDE.md` and `docs/PROJECT_OVERVIEW.md`.
+- Avatar redesigned as a JARVIS-style holographic core: rotating segmented and
+  tick rings, radar sweep, voice-reactive waveform ring, orbiting data motes,
+  bloom core that tracks the pointer, HUD readouts (mode, link, CPU/MEM) and
+  scanlines. Three colour layers defined once in `src/lib/avatar.ts`: 13 moods
+  (core), 4 conditions (outer halo + banner: backend offline, high load,
+  blocked by policy, connection issue) driven by status polling and
+  `AppError.kind`, and 4 signal ripples for agent tool/notice events. In-app
+  colour key (`AvatarKey.svelte`, "KEY" button) and a key in the user guide.
+- Avatar extras: boot sequence (core ignites, rings power on inside-out),
+  decoding status text, cursor target-lock reticle with coordinates/range,
+  orbiting labelled satellites for live tool calls (paired call → result via
+  the tool-call id; amber → green/red, then fade), drag-to-spin rings with
+  flick inertia, and neural links between data motes while thinking.
+  `Signal` gained optional `label`/`ref`.
+
 ### Phase 1: Security lockdown (`fix/phase-1-security`)
 
 **Changed**
@@ -283,27 +351,26 @@ MCP servers run with user permissions once approved.
 - Environment configuration template
 - Architecture documentation
 
-## [Unreleased]
+## Roadmap (as written for 1.0.0, status updated)
 
-### Planned Features
-- Full Ollama/LM Studio integration
-- Cloud LLM fallback (OpenAI, Claude, Grok, Gemini)
-- Complete voice recognition with Whisper
-- Natural TTS with Piper/Coqui
-- Vector database for long-term memory
-- Autonomous agent loop
+- ✅ Ollama integration (streaming, tools, runtime model discovery)
+- ✅ Cloud LLM providers (Anthropic, OpenAI, Gemini, xAI via OpenAI-compatible APIs), opt-in outside local-only mode
+- ✅ Voice recognition with Whisper (faster-whisper / Speaches)
+- ✅ TTS with Piper
+- ✅ Long-term memory via kb-core (PostgreSQL/pgvector)
+- ✅ Agent loop (policy-gated tools, bounded autonomy)
+- ✅ Plugin architecture: MCP client
+- Notification system (tray icon exists; desktop notifications not yet)
 - Proactive assistance
 - Browser automation
 - Code analysis and modification
 - Document processing (PDF, DOCX)
 - Screenshot and screen understanding
-- Clipboard integration
-- Notification system
-- Plugin architecture
+- Clipboard integration (deliberately not granted to the webview today)
 - Mobile companion app
 - Cloud sync
 - Multi-agent collaboration
 
 ---
 
-For more details, see the [README](README.md) and [GitHub Releases](https://github.com/Paulmmoore3416/omnix-ai-desktop/releases).
+For more details, see the [README](README.md) and [GitHub Releases](https://github.com/paulmmoore3416/omnix-ai-desktop/releases).

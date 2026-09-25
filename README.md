@@ -32,7 +32,8 @@
 | Local-only mode (blocks cloud providers and non-local endpoints) | ✅ on by default |
 | Settings export/import (never includes secrets) | ✅ |
 | Cloud providers (Anthropic, OpenAI, Gemini, xAI) with streaming + tools | ✅ when local-only mode is turned off; keys in the OS keychain |
-| Voice: push-to-talk speech input via your faster-whisper server, read-aloud via local Piper | ✅ when configured (Settings → Voice); hold the mic or Ctrl+Space |
+| Voice: push-to-talk speech input via a faster-whisper server (Speaches), read-aloud via local Piper | ✅ when configured (Settings → Voice); hold or tap the mic, or hold Ctrl+Space; built-in mic test |
+| JARVIS-style holographic avatar: 13 mood colours, alert halos (offline, high load, blocked, connection issue), tool-call satellites, in-app colour key | ✅ |
 | Long-term memory (save, search, index documents) via an external kb-core service | ✅ when configured ([contract](docs/kb-core-contract.md)); knowledge-base management, export/import planned |
 | Services, automations, scheduler, alerts, cleanup | 🚧 planned: controls are disabled in the UI |
 | MCP servers (stdio or HTTP) as extra AI tools, every call policy-gated and audited | ✅ Settings → MCP Servers |
@@ -40,6 +41,7 @@
 | Optional audit-log shipping to Grafana Loki | ✅ off by default |
 | AIORC routing backend | 🚧 scaffold only (`--features aiorc`), awaiting its `.proto` |
 | Auto-update | 🚧 not enabled until release signing is configured |
+| One-command setup on Ubuntu/Debian (`scripts/bootstrap.sh`) + health check (`scripts/doctor.sh`) | ✅ |
 
 Anything marked planned is visibly disabled in the app and returns a `not_implemented` error from the backend. Nothing pretends to succeed.
 
@@ -47,18 +49,42 @@ Anything marked planned is visibly disabled in the app and returns a `not_implem
 
 ## Quick start
 
-### Prerequisites
-
-- Node.js 24 LTS (22+ works) and npm
-- Rust (stable) via [rustup](https://rustup.rs)
-- Platform dependencies for Tauri: see the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
-  - Linux: `libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libayatana-appindicator3-dev librsvg2-dev`, a polkit agent (for `pkexec`), and a Secret Service provider (GNOME Keyring or KWallet) for key storage
-- [Ollama](https://ollama.com) with at least one model pulled
+### One command (Ubuntu / Debian, recommended)
 
 ```bash
-git clone https://github.com/paulmmoore3416/omnix-ai-desktop.git
+git clone https://github.com/paulmmoore3416/omnix-ai-desktop.git   # private repo: gh auth login first
 cd omnix-ai-desktop
-npm install
+./scripts/bootstrap.sh
+```
+
+`bootstrap.sh` is idempotent (safe to re-run) and sets up everything:
+
+1. System packages (WebKitGTK/Tauri build deps, audio, jq, Python venv), Rust stable, Node.js 24
+2. Ollama as a systemd service, plus chat models (`qwen3:8b` default, `qwen3:14b` extra)
+3. [Speaches](https://github.com/speaches-ai/speaches) speech-to-text in Docker on the smallest NVIDIA GPU (CUDA image), with the model downloaded
+4. Piper text-to-speech in a private venv, plus the `en_US-lessac-medium` voice
+5. `~/.config/omnix/settings.json` seeded with those endpoints (it fills blanks and never overwrites your choices; a backup is kept)
+6. A release build of OMNIX, installed as a `.deb` (app launcher + `omnix` command)
+7. `scripts/doctor.sh` health check (Ollama round-trip, STT model, Piper voice, settings, GPUs)
+
+Options: `--services-only`, `--no-services`, `--lan` (serve Ollama/Speaches to other machines), `--cpu`, `--yes`.
+The NVIDIA driver is the one thing it won't install; it stops and tells you the command. Full server notes, GPU
+layout and troubleshooting: **[docs/SERVER_DEPLOYMENT.md](docs/SERVER_DEPLOYMENT.md)**.
+
+Running Claude Code on the target machine? Point it at **[CLAUDE.md](CLAUDE.md)**: it's the step-by-step runbook
+for installing, verifying and fixing OMNIX.
+
+### Manual / other platforms
+
+- Node.js 24 LTS (22+ works) and npm
+- Rust (stable, 1.95+) via [rustup](https://rustup.rs)
+- Platform dependencies for Tauri: see the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
+  - Linux: `libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev`, a polkit agent (for `pkexec`), and a Secret Service provider (GNOME Keyring or KWallet) for key storage
+  - macOS / Windows: `scripts/setup.sh` / `scripts/setup.ps1` check the toolchain and install npm dependencies
+- [Ollama](https://ollama.com) with at least one model pulled (`ollama pull qwen3:8b`)
+
+```bash
+npm ci
 npm run tauri dev        # development
 npm run tauri build      # production bundle
 ```
@@ -72,17 +98,14 @@ All configuration is done in the app under **Settings** and stored in:
 
 `.env` files are **not** read by the app. `.env.example` only documents developer tooling variables.
 
-To use a local model:
-
-```bash
-ollama pull llama3.1        # or any model you prefer
-```
-
-Then open **Settings → AI Models**, pick the model from the list (OMNIX reads the installed models from Ollama's `/api/tags`; no model is hardcoded), and save.
+Open **Settings → AI Models** and pick a model from the list (OMNIX reads the installed models from Ollama's
+`/api/tags`; no model is hardcoded). Voice setup is in **Settings → Voice** ([guide](docs/USER_GUIDE.md#4-talking-to-omnix-voice)).
 
 ---
 
 ## Usage
+
+New to OMNIX? Start with the **[User Guide](docs/USER_GUIDE.md)**. For a full capability breakdown see the **[Project Overview](docs/PROJECT_OVERVIEW.md)**.
 
 ```text
 /execute git status                 # read-only: runs immediately
@@ -153,6 +176,7 @@ The Rust backend is the trust boundary; the webview can only call registered com
 ```bash
 npm run check                     # svelte-check
 npm test                          # Vitest
+./scripts/doctor.sh               # environment health check
 cd src-tauri && cargo test        # Rust unit tests
 cargo clippy --all-targets -- -D warnings
 ```
@@ -170,8 +194,8 @@ cargo clippy --all-targets -- -D warnings
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```bash
-git clone https://github.com/<your-username>/omnix-ai-desktop.git
 git checkout -b feature/my-change
+./scripts/doctor.sh               # sanity-check your environment
 ```
 
 ## License

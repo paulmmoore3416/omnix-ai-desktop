@@ -37,6 +37,16 @@ Everything below describes what is implemented and tested in this repository.
 - **Local-only mode** that blocks cloud providers and non-private endpoints in
   Rust, built for machines on healthcare networks (no PHI egress).
 - **Voice**: push-to-talk speech-to-text (faster-whisper) and Piper TTS.
+  Audio is captured with Web Audio and encoded in-app to 16 kHz WAV (no
+  dependency on webview codecs), with a live level meter, hold-or-tap
+  controls, Esc to cancel, and a built-in microphone self-test.
+- **JARVIS-style holographic avatar** (SVG): 13 mood colours, 4 alert
+  conditions and 4 signal ripples wired to real backend state, tool-call
+  satellites, voice-reactive waveform, flick-to-spin rings, and an in-app
+  colour key.
+- **One-command deployment**: `scripts/bootstrap.sh` provisions a fresh
+  Ubuntu server (Ollama + GPU-sized models, Speaches STT on CUDA, Piper TTS,
+  seeded settings, `.deb` install); `scripts/doctor.sh` verifies it.
 
 ## Stack
 
@@ -76,8 +86,8 @@ model.
   tampering, secret migration, stream parsers (Ollama/Anthropic/OpenAI), an
   MCP stdio end-to-end test, and executor timeouts/env clearing. Plus an
   opt-in live Ollama test.
-- Frontend: 16 Vitest tests (API/error helpers, write-only secret field,
-  disabled-state UI, markdown sanitizer, voice helpers).
+- Frontend: 19 Vitest tests (API/error helpers, write-only secret field,
+  disabled-state UI, markdown sanitizer, voice helpers, WAV encoder).
 - `cargo clippy -D warnings`, `svelte-check` with 0 errors and 0 warnings,
   `npm audit` clean, `cargo audit` with 0 vulnerabilities.
 
