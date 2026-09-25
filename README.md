@@ -32,10 +32,14 @@
 | Local-only mode (blocks cloud providers and non-local endpoints) | ✅ on by default |
 | Settings export/import (never includes secrets) | ✅ |
 | Cloud providers (Anthropic, OpenAI, Gemini, xAI) with streaming + tools | ✅ when local-only mode is turned off; keys in the OS keychain |
-| Voice input/output (push-to-talk) | 🚧 planned |
+| Voice: push-to-talk speech input via your faster-whisper server, read-aloud via local Piper | ✅ when configured (Settings → Voice); hold the mic or Ctrl+Space |
 | Long-term memory (save, search, index documents) via an external kb-core service | ✅ when configured ([contract](docs/kb-core-contract.md)); knowledge-base management, export/import planned |
 | Services, automations, scheduler, alerts, cleanup | 🚧 planned: controls are disabled in the UI |
-| Integrations (GitHub, Drive, …) | 🚧 planned: will be MCP servers |
+| MCP servers (stdio or HTTP) as extra AI tools, every call policy-gated and audited | ✅ Settings → MCP Servers |
+| Tray icon, close-to-tray, single instance, remembered window size | ✅ |
+| Optional audit-log shipping to Grafana Loki | ✅ off by default |
+| AIORC routing backend | 🚧 scaffold only (`--features aiorc`), awaiting its `.proto` |
+| Auto-update | 🚧 not enabled until release signing is configured |
 
 Anything marked planned is visibly disabled in the app and returns a `not_implemented` error from the backend. Nothing pretends to succeed.
 
@@ -120,7 +124,9 @@ OMNIX is designed on the assumption that the webview **and** the LLM may be comp
 
 **Webview hardening.** Strict Content-Security-Policy (no remote origins; all network access goes through Rust). No shell, filesystem, opener, dialog, notification or clipboard plugin permissions are granted to the webview. Devtools only open in debug builds.
 
-**No telemetry.** OMNIX sends nothing anywhere except to the model endpoint you configure.
+**MCP, voice and log shipping** follow the same rules: registering servers or endpoints needs native confirmation, every MCP tool call is confirmed (unless you mark it read-only) and audited, endpoints obey local-only mode, and the microphone is push-to-talk only.
+
+**No telemetry.** OMNIX sends nothing anywhere except to endpoints you configure.
 
 ---
 

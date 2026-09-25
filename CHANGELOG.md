@@ -191,6 +191,46 @@ on push).
 contract is assumed; cloud providers were not exercised against live APIs
 (no keys configured on this machine).
 
+### Phase 4: Integrations & desktop polish (`feat/phase-4-integrations`)
+
+**Added**
+- **MCP client** (official `rmcp` 3.4, client-only features): register stdio
+  or streamable-HTTP servers in Settings → MCP Servers; tools are exposed to
+  the agent as `mcp__<server>__<tool>`. Starting a stdio server is
+  policy-classified, natively confirmed and audited; HTTP servers obey
+  `local_only`; secrets (env vars, bearer tokens) live in the keychain as
+  `mcp.<server>.<NAME>`; every tool call is Mutating (native dialog) unless
+  marked read-only, time-limited and audited; outputs are untrusted data.
+  Verified end-to-end against a stdio fixture server (`tests/fixtures`).
+- Replaced the placeholder GitHub/Drive/Slack/Discord/Jira/Notion settings
+  (and `test_integration`) with MCP server entries.
+- **AIORC**: `aiorc` cargo feature with an `AiorcProvider` scaffold that
+  returns `NotImplemented`. No `.proto` was provided, so no schema was invented.
+- **Voice** (push-to-talk only): STT via a configurable faster-whisper
+  server (OpenAI-compatible `/v1/audio/transcriptions`, `local_only`),
+  raw-bytes IPC; TTS via Piper through the executor's hardened spawn (fixed
+  argv, stdin, audited); mic button and Ctrl+Space are wired; "Read aloud" on
+  replies. On Linux, WebKitGTK media streams are enabled and **only
+  audio-only** permission requests are granted, only while voice is configured.
+- **Desktop plugins**: `single-instance`, `window-state`, `global-shortcut`
+  (Ctrl+Space PTT), tray icon (Show/Quit, close-to-tray honouring
+  `minimize_to_tray`), `tauri-plugin-log` (rotating `omnix.log`, separate from
+  the audit log; `tracing` bridged via its `log` feature). The updater is
+  intentionally not registered; setup documented in `docs/ARCHITECTURE.md`.
+- **Observability**: optional Loki shipping of redacted audit lines
+  (`observability.loki_url`, off by default, bounded/async, `local_only`).
+- Settings UI: MCP server editor, Voice tab, autonomous-mode and Loki
+  controls. `SecretField` checks the keychain itself when `has` is omitted.
+- CSP: `media-src 'self' blob:` for TTS playback.
+
+**Tests:** Rust 108 (+1 opt-in live Ollama; +1 `aiorc` test under
+`--all-features`), Vitest 16.
+
+**Residual risk:** voice capture and Piper were not exercised end-to-end here
+(no STT server or Piper installed); the global shortcut may be unavailable
+where Ctrl+Space is bound by the input-method switcher (logged, non-fatal);
+MCP servers run with user permissions once approved.
+
 ## [1.0.0] - 2026-06-03
 
 ### Added

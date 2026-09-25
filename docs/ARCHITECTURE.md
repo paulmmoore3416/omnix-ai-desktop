@@ -57,7 +57,10 @@ flowchart TB
         end
 
         settings["settings<br/>settings.json (no secrets)"]
-        desktop["desktop<br/>autostart"]
+        desktop["desktop<br/>autostart, tray, PTT shortcut, mic"]
+        mcp["mcp<br/>rmcp client"]
+        voice["voice<br/>STT + Piper TTS"]
+        obs["observability<br/>Loki shipper"]
 
         commands --> executor
         commands --> files
@@ -83,6 +86,13 @@ flowchart TB
         agent --> executor
         agent --> files
         agent --> store
+        agent --> mcp
+        commands --> voice
+        voice --> executor
+        mcp --> policy
+        mcp --> confirm
+        mcp --> audit
+        audit --> obs
         store --> kbcore
         ollama --> endpoint
         kbcore --> endpoint
@@ -176,6 +186,11 @@ src-tauri/
   src/security/              policy, confirm, executor, elevation, files, audit, secrets
   src/ai/                    providers, agent loop, context, endpoint guard
   src/memory/                MemoryStore + kb-core adapter
+  src/mcp.rs                 MCP client (stdio + streamable HTTP), policy-gated tool calls
+  src/voice.rs               faster-whisper STT client, Piper TTS
+  src/observability.rs       optional Loki audit shipping
+  src/desktop.rs             autostart, tray, global shortcut, microphone permissions
+  tests/fixtures/            tiny MCP stdio server used by tests
   src/system/                metrics, processes
   src/settings.rs            persisted configuration
   src/state.rs               AppState
@@ -196,6 +211,37 @@ docs/                        SECURITY.md, ARCHITECTURE.md
 * **CI:** `.github/workflows/ci.yml` runs all of the above plus `cargo fmt`,
   `cargo clippy -D warnings`, `cargo audit`, `npm audit`, a secret scan and a
   three-OS compile.
+
+## Desktop plugins
+
+| Plugin | Purpose |
+|--------|---------|
+| `single-instance` | A second launch focuses the running window |
+| `window-state` | Restores window size/position |
+| `global-shortcut` | Ctrl+Space push-to-talk (emits `ptt` pressed/released) |
+| `autostart` | Launch at login from `general.auto_start` |
+| `log` | Rotating `omnix.log` (separate from the audit log) |
+| `dialog` | Native confirmations and file pickers (Rust-side only) |
+| tray (`tauri` `tray-icon`) | Show/Quit menu; close-to-tray when `general.minimize_to_tray` |
+
+None of these grant permissions to the webview except core event listening
+(for `ptt`).
+
+## Updater (not enabled)
+
+`tauri-plugin-updater` is intentionally **not** registered: shipping update
+checks without signed artifacts would let anyone who can tamper with the
+update feed replace the app. To enable it:
+
+1. `npm run tauri signer generate -- -w ~/.tauri/omnix.key` (keep the private
+   key out of the repo; store it and its password as the
+   `TAURI_SIGNING_PRIVATE_KEY` / `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` secrets).
+2. Add `tauri-plugin-updater` (Rust + `@tauri-apps/plugin-updater`) and register it.
+3. In `tauri.conf.json`: `"bundle": { "createUpdaterArtifacts": true }` and
+   `"plugins": { "updater": { "pubkey": "<public key>", "endpoints": ["https://github.com/paulmmoore3416/omnix-ai-desktop/releases/latest/download/latest.json"] } }`.
+4. Grant only `updater:default` in the capability and uncomment the signing
+   env vars in `release.yml` (tauri-action then publishes `latest.json`).
+5. Respect `general.check_updates` before checking.
 
 ## Releases and signing
 
