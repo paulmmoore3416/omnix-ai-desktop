@@ -3,7 +3,7 @@
 use super::not_implemented;
 use crate::error::AppResult;
 use crate::state::AppState;
-use crate::system::metrics::{self, RealTimeStats, SystemInfo, SystemStatus};
+use crate::system::metrics::{RealTimeStats, SystemInfo, SystemStatus};
 use crate::system::processes::{self, ProcessInfo};
 use serde_json::{json, Value};
 use tauri::{AppHandle, State};
@@ -11,25 +11,26 @@ use tauri::{AppHandle, State};
 /// CPU/memory snapshot for the sidebar.
 #[tauri::command]
 pub async fn get_system_status(state: State<'_, AppState>) -> AppResult<SystemStatus> {
-    metrics::status(&mut *state.system()?)
+    state.monitor()?.status()
 }
 
 /// Static host information.
 #[tauri::command]
 pub async fn get_system_info(state: State<'_, AppState>) -> AppResult<SystemInfo> {
-    metrics::info(&mut *state.system()?)
+    state.monitor()?.info()
 }
 
 /// Live metrics.
 #[tauri::command]
 pub async fn get_real_time_stats(state: State<'_, AppState>) -> AppResult<RealTimeStats> {
-    metrics::real_time(&mut *state.system()?)
+    state.monitor()?.real_time()
 }
 
 /// Top processes by CPU.
 #[tauri::command]
 pub async fn get_processes(state: State<'_, AppState>) -> AppResult<Vec<ProcessInfo>> {
-    Ok(processes::list(&mut *state.system()?))
+    let mut monitor = state.monitor()?;
+    Ok(processes::list(&mut monitor))
 }
 
 /// Terminate a process (native confirmation + audit).

@@ -5,10 +5,10 @@ use crate::security::audit::{AuditRecord, Confirmation, Decision};
 use crate::security::confirm::{self, ConfirmRequest};
 use crate::security::policy::{RiskTier, Source};
 use crate::state::AppState;
-use crate::system::metrics::percent;
+use crate::system::metrics::{percent, Monitor};
 use serde::Serialize;
 use std::time::Duration;
-use sysinfo::{Pid, Signal, System};
+use sysinfo::{Pid, ProcessesToUpdate, Signal};
 use tauri::{AppHandle, Runtime};
 
 /// Maximum processes returned to the UI.
@@ -30,8 +30,9 @@ pub struct ProcessInfo {
 }
 
 /// Top processes by CPU usage.
-pub fn list(sys: &mut System) -> Vec<ProcessInfo> {
-    sys.refresh_processes();
+pub fn list(monitor: &mut Monitor) -> Vec<ProcessInfo> {
+    let sys = monitor.sys();
+    sys.refresh_processes(ProcessesToUpdate::All, true);
     sys.refresh_memory();
     let total = sys.total_memory();
     let mut v: Vec<ProcessInfo> = sys
@@ -39,7 +40,7 @@ pub fn list(sys: &mut System) -> Vec<ProcessInfo> {
         .iter()
         .map(|(pid, p)| ProcessInfo {
             pid: pid.as_u32(),
-            name: p.name().to_string(),
+            name: p.name().to_string_lossy().into_owned(),
             cpu: p.cpu_usage(),
             memory: percent(p.memory(), total),
             status: format!("{:?}", p.status()),
@@ -83,10 +84,11 @@ pub async fn kill<R: Runtime>(app: &AppHandle<R>, state: &AppState, pid: u32) ->
         return Err(AppError::PolicyDenied(msg.into()));
     }
     let name = {
-        let mut sys = state.system()?;
-        sys.refresh_processes();
+        let mut monitor = state.monitor()?;
+        let sys = monitor.sys();
+        sys.refresh_processes(ProcessesToUpdate::Some(&[Pid::from_u32(pid)]), true);
         sys.process(Pid::from_u32(pid))
-            .map(|p| p.name().to_string())
+            .map(|p| p.name().to_string_lossy().into_owned())
             .ok_or_else(|| AppError::InvalidInput(format!("no process with PID {pid}")))?
     };
     let timeout = Duration::from_secs(
@@ -127,8 +129,9 @@ pub async fn kill<R: Runtime>(app: &AppHandle<R>, state: &AppState, pid: u32) ->
         return Err(AppError::NotApproved("process was not terminated".into()));
     }
     let killed = {
-        let mut sys = state.system()?;
-        sys.refresh_processes();
+        let mut monitor = state.monitor()?;
+        let sys = monitor.sys();
+        sys.refresh_processes(ProcessesToUpdate::Some(&[Pid::from_u32(pid)]), true);
         match sys.process(Pid::from_u32(pid)) {
             Some(p) => p.kill_with(Signal::Term).unwrap_or_else(|| p.kill()),
             None => false,
