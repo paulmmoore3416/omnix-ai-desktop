@@ -103,6 +103,9 @@ pub struct AiSettings {
     pub ollama_host: String,
     /// Selected Ollama model; empty until the user picks an installed model.
     pub ollama_model: String,
+    /// Selected model for the cloud provider (discovered via its models
+    /// endpoint; never hardcoded).
+    pub cloud_model: String,
     /// Keychain has an OpenAI key (read-only for the frontend).
     pub has_openai_key: bool,
     /// Keychain has an Anthropic key.
@@ -127,6 +130,7 @@ impl Default for AiSettings {
             provider: "ollama".into(),
             ollama_host: "http://localhost:11434".into(),
             ollama_model: String::new(),
+            cloud_model: String::new(),
             has_openai_key: false,
             has_anthropic_key: false,
             has_gemini_key: false,
@@ -202,6 +206,8 @@ impl Default for VoiceSettings {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MemorySettings {
+    /// Base URL of the kb-core service. Empty = memory disabled.
+    pub backend_url: String,
     /// Maximum stored memories.
     pub max_memory_size: u32,
     /// Summarize conversations automatically.
@@ -215,6 +221,7 @@ pub struct MemorySettings {
 impl Default for MemorySettings {
     fn default() -> Self {
         Self {
+            backend_url: String::new(),
             max_memory_size: 1000,
             auto_summarize: false,
             retention_days: 90,
@@ -327,6 +334,15 @@ impl Settings {
             Ok(u) if matches!(u.scheme(), "http" | "https") => {}
             _ => return bad("ai.ollama_host must be an http(s) URL"),
         }
+        if !self.memory.backend_url.is_empty() {
+            match reqwest::Url::parse(&self.memory.backend_url) {
+                Ok(u) if matches!(u.scheme(), "http" | "https") => {}
+                _ => return bad("memory.backend_url must be an http(s) URL"),
+            }
+        }
+        if self.ai.cloud_model.len() > 200 {
+            return bad("ai.cloud_model is too long");
+        }
         if self.memresort.host.trim().is_empty() || self.memresort.host.contains(['/', ' ', '@']) {
             return bad("memresort.host must be a bare host name or IP");
         }
@@ -427,6 +443,12 @@ impl Settings {
         }
         if self.ai.ollama_host != new.ai.ollama_host {
             out.push(format!("Change Ollama host to {}", new.ai.ollama_host));
+        }
+        if !new.memory.backend_url.is_empty() && self.memory.backend_url != new.memory.backend_url {
+            out.push(format!(
+                "Send memories to kb-core at {}",
+                new.memory.backend_url
+            ));
         }
         if new.memresort.enabled
             && (self.memresort.host != new.memresort.host

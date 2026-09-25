@@ -2,6 +2,7 @@
 
 use super::not_implemented;
 use crate::ai::{endpoint, ollama};
+
 use crate::error::{AppError, AppResult};
 use crate::security::audit::{AuditRecord, Confirmation, Decision};
 use crate::security::confirm::{self, ConfirmRequest};
@@ -196,40 +197,50 @@ pub async fn has_secret(state: State<'_, AppState>, provider: String) -> AppResu
     tokio::task::spawn_blocking(move || store.has(&provider)).await?
 }
 
-/// Real connectivity check against the configured provider.
+/// Real connectivity check against the provider described by `config`
+/// (the unsaved form values): health check plus model availability.
 #[tauri::command]
 pub async fn test_ai_model(state: State<'_, AppState>, config: AiSettings) -> AppResult<String> {
     let local_only = state.settings.read().await.security.local_only;
-    endpoint::ensure_provider_allowed(&config.provider, local_only)?;
-    if config.provider != "ollama" {
-        return not_implemented("testing cloud providers");
+    let selected = crate::ai::build_provider(&state, &config, local_only, false).await?;
+    let summary = selected.provider.health_check().await?;
+    if selected.model.is_empty() {
+        return Ok(format!("{summary}. Select a model and save."));
     }
-    endpoint::ensure_endpoint_allowed(&config.ollama_host, local_only).await?;
-    let models = ollama::list_models(&state.http, &config.ollama_host).await?;
-    let host = &config.ollama_host;
-    if models.is_empty() {
-        return Ok(format!(
-            "Connected to Ollama at {host}, but no models are installed (run `ollama pull <model>`)."
-        ));
-    }
-    if config.ollama_model.is_empty() {
-        return Ok(format!(
-            "Connected to Ollama at {host}. Installed models: {}. Select one and save.",
-            models.join(", ")
-        ));
-    }
-    if !models.contains(&config.ollama_model) {
+    let models = selected.provider.list_models().await?;
+    if !models.contains(&selected.model) {
         return Err(AppError::InvalidInput(format!(
-            "model `{}` is not installed on {host}. Installed: {}",
-            config.ollama_model,
-            models.join(", ")
+            "{summary}, but model `{}` is not available",
+            selected.model
         )));
     }
     Ok(format!(
-        "Connected to Ollama at {host}; model `{}` is installed ({} models available).",
-        config.ollama_model,
-        models.len()
+        "{summary}; model `{}` is available.",
+        selected.model
     ))
+}
+
+/// Models offered by `provider` (defaults to the saved provider). Keys come
+/// from the keychain; ids are discovered at runtime.
+#[tauri::command]
+pub async fn list_models(
+    state: State<'_, AppState>,
+    provider: Option<String>,
+) -> AppResult<Vec<String>> {
+    let settings = state.settings.read().await.clone();
+    let mut ai = settings.ai.clone();
+    if let Some(p) = provider.filter(|p| !p.is_empty()) {
+        ai.provider = p;
+    }
+    let selected =
+        crate::ai::build_provider(&state, &ai, settings.security.local_only, false).await?;
+    selected.provider.list_models().await
+}
+
+/// Check that the configured kb-core memory backend answers `/health`.
+#[tauri::command]
+pub async fn test_memory_backend(state: State<'_, AppState>) -> AppResult<String> {
+    crate::memory::require(&state).await?.health().await
 }
 
 /// Models installed on the Ollama server (`GET /api/tags`). Model ids are

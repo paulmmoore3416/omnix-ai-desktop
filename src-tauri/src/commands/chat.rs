@@ -6,13 +6,65 @@
 //! if the model is unreachable, the user gets an error.
 
 use super::not_implemented;
-use crate::ai::{endpoint, ollama};
+use crate::ai::agent::{self, UiEvent};
 use crate::error::{AppError, AppResult};
 use crate::security::executor::{self, ExecRequest, ExecResult};
 use crate::security::files;
 use crate::security::policy::Source;
 use crate::state::AppState;
+use std::sync::atomic::Ordering;
+use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
+
+/// Send a chat message to the configured model. Tokens, tool calls/results
+/// and notices stream over `on_event`; the returned future resolves when the
+/// turn is complete. Errors are both returned and streamed as `error`.
+#[tauri::command]
+pub async fn chat_send(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    message: String,
+    on_event: Channel<UiEvent>,
+) -> AppResult<()> {
+    let message = message.trim().to_string();
+    if message.is_empty() {
+        return Err(AppError::InvalidInput("message is empty".into()));
+    }
+    if message.len() > 100_000 {
+        return Err(AppError::InvalidInput("message is too long".into()));
+    }
+    let emit = |ev: UiEvent| {
+        // A closed channel (window reloaded) is not an error for the turn.
+        if let Err(e) = on_event.send(ev) {
+            tracing::debug!(error = %e, "chat channel closed");
+        }
+    };
+    let result = agent::run_turn(&app, &state, message, &emit).await;
+    if let Err(e) = &result {
+        emit(UiEvent::Error {
+            message: e.to_string(),
+        });
+    }
+    result
+}
+
+/// Stop the current response (between stream events / before the next tool).
+#[tauri::command]
+pub async fn chat_cancel(state: State<'_, AppState>) -> AppResult<()> {
+    state.chat_cancel.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
+/// Clear the conversation history.
+#[tauri::command]
+pub async fn chat_reset(state: State<'_, AppState>) -> AppResult<()> {
+    state
+        .conversation
+        .try_lock()
+        .map_err(|_| AppError::InvalidInput("a response is in progress; stop it first".into()))?
+        .clear();
+    Ok(())
+}
 
 /// Handle one line of chat input and return the assistant's reply text.
 #[tauri::command]
@@ -44,13 +96,10 @@ pub async fn process_command(
     if slash(input, "/monitor").is_some() {
         return monitor(&state);
     }
-    if input.starts_with('/') {
-        let word = input.split_whitespace().next().unwrap_or(input).to_string();
-        return Err(AppError::InvalidInput(format!(
-            "unknown command {word}. Available: /execute, /file, /monitor"
-        )));
-    }
-    ask_llm(&state, input).await
+    let word = input.split_whitespace().next().unwrap_or(input).to_string();
+    Err(AppError::InvalidInput(format!(
+        "unknown command {word}. Available: /execute, /file, /monitor (plain text goes to chat)"
+    )))
 }
 
 /// Match `/name` or `/name <rest>` (word boundary), returning `<rest>`.
@@ -119,30 +168,6 @@ fn monitor(state: &AppState) -> AppResult<String> {
     Ok(out)
 }
 
-async fn ask_llm(state: &AppState, prompt: &str) -> AppResult<String> {
-    let settings = state.settings.read().await.clone();
-    let ai = &settings.ai;
-    endpoint::ensure_provider_allowed(&ai.provider, settings.security.local_only)?;
-    if ai.provider != "ollama" {
-        return not_implemented("cloud chat providers");
-    }
-    if ai.ollama_model.is_empty() {
-        return Err(AppError::InvalidInput(
-            "no Ollama model selected: choose one in Settings → AI Models".into(),
-        ));
-    }
-    endpoint::ensure_endpoint_allowed(&ai.ollama_host, settings.security.local_only).await?;
-    ollama::generate(
-        &state.http,
-        &ai.ollama_host,
-        &ai.ollama_model,
-        prompt,
-        ai.temperature,
-        ai.max_tokens,
-    )
-    .await
-}
-
 /// Render an execution result for the chat transcript.
 fn format_exec(r: &ExecResult) -> String {
     let status = match r.exit_code {
@@ -152,13 +177,21 @@ fn format_exec(r: &ExecResult) -> String {
     };
     let mut s = format!("{status} · {} ms · {}\n", r.duration_ms, r.tier);
     if !r.stdout.is_empty() {
-        s.push_str(&r.stdout);
+        s.push_str(&fenced(&r.stdout));
     }
     if !r.stderr.is_empty() {
-        s.push_str("\n[stderr]\n");
-        s.push_str(&r.stderr);
+        s.push_str("\nstderr:\n");
+        s.push_str(&fenced(&r.stderr));
     }
     s
+}
+
+/// Wrap output in a Markdown code fence longer than any backtick run inside it,
+/// so command output can never break out of the block when rendered.
+fn fenced(text: &str) -> String {
+    let longest = text.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+    let fence = "`".repeat(longest.max(2) + 1);
+    format!("{fence}\n{}\n{fence}\n", text.trim_end())
 }
 
 #[cfg(test)]
@@ -171,5 +204,12 @@ mod tests {
         assert_eq!(slash("/execute", "/execute"), Some(""));
         assert_eq!(slash("/executes ls", "/execute"), None);
         assert_eq!(slash("hello", "/execute"), None);
+    }
+
+    #[test]
+    fn fences_cannot_be_escaped() {
+        assert_eq!(fenced("hi"), "```\nhi\n```\n");
+        let f = fenced("a ```` b");
+        assert!(f.starts_with("`````\n"));
     }
 }

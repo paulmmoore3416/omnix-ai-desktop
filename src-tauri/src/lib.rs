@@ -3,7 +3,8 @@
 //! Layout:
 //! * [`commands`]: thin `#[tauri::command]` wrappers (the IPC surface).
 //! * [`security`]: policy engine, native confirmation, executor, audit log, keychain.
-//! * [`ai`]: LLM providers and `local_only` enforcement.
+//! * [`ai`]: LLM providers, agent loop and `local_only` enforcement.
+//! * [`memory`]: long-term memory (kb-core adapter).
 //! * [`system`]: metrics and process management.
 //! * [`settings`]: persisted configuration (no secrets).
 //! * [`state`]: [`state::AppState`], managed by Tauri.
@@ -13,6 +14,7 @@ pub mod ai;
 pub mod commands;
 pub mod desktop;
 pub mod error;
+pub mod memory;
 pub mod security;
 pub mod settings;
 pub mod state;
@@ -63,6 +65,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // Chat
             commands::chat::process_command,
+            commands::chat::chat_send,
+            commands::chat::chat_cancel,
+            commands::chat::chat_reset,
             // Execution (the only shell entry point) and audit
             commands::exec::request_execution,
             commands::exec::verify_audit_log,
@@ -79,6 +84,8 @@ pub fn run() {
             commands::settings::has_secret,
             commands::settings::test_ai_model,
             commands::settings::list_ollama_models,
+            commands::settings::list_models,
+            commands::settings::test_memory_backend,
             commands::settings::test_memresort_connection,
             commands::settings::test_integration,
             // Knowledge
