@@ -1,12 +1,20 @@
 import { defineConfig } from "vite";
 import { sveltekit } from "@sveltejs/kit/vite";
 
-// @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
   plugins: [sveltekit()],
+
+  // Vitest runs components in jsdom; Svelte must resolve its browser build there.
+  resolve: process.env.VITEST ? { conditions: ["browser"] } : undefined,
+
+  test: {
+    environment: "jsdom",
+    include: ["src/**/*.test.ts"],
+    setupFiles: ["./vitest.setup.ts"],
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
