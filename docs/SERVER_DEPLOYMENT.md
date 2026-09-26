@@ -1,13 +1,13 @@
 # OMNIX Server Deployment
 
-How to put OMNIX on a dedicated Linux machine with NVIDIA GPUs, using `scripts/bootstrap.sh`. Written for the
-reference box below; any Ubuntu/Debian machine with an NVIDIA GPU works the same way.
+How to put OMNIX on a dedicated Linux machine, using `scripts/bootstrap.sh`. Written for the reference box below;
+any Ubuntu/Debian machine with an NVIDIA GPU works the same way, and Ollama can also use AMD GPUs through Vulkan (§4).
 
 | Reference hardware | |
 |---|---|
 | CPU | Intel Core i7, 12 cores |
 | RAM | 48 GB |
-| GPU 0 / GPU 1 | 8 GB + 6 GB NVIDIA |
+| GPUs | AMD Radeon RX 580 8 GB (Ollama, via Vulkan) + NVIDIA GTX 1060 6 GB (Speaches, via CUDA) |
 | OS | Ubuntu 24.04 LTS or newer (Debian 12+ works) |
 
 ---
@@ -37,7 +37,7 @@ Layout B keeps working in **local-only mode** as long as the server address is p
    reboot and can break a running desktop:
    ```bash
    sudo ubuntu-drivers install && sudo reboot
-   nvidia-smi          # must list both GPUs
+   nvidia-smi          # must list your NVIDIA GPU(s); AMD cards don't appear here
    ```
 3. A normal user with `sudo`. Don't run the script as root.
 4. **GitHub access** (the repository is private): `sudo apt install gh && gh auth login`, or an SSH key on your account.
@@ -95,21 +95,26 @@ Example: `OMNIX_EXTRA_MODELS="qwen3:14b qwen2.5-coder:7b" ./scripts/bootstrap.sh
 
 ---
 
-## 4. GPU and memory layout (8 GB + 6 GB)
+## 4. GPU and memory layout (RX 580 8 GB + GTX 1060 6 GB)
+
+Measured on the reference machine (Ollama 0.34, 2026-09-26):
 
 | Workload | Where | VRAM (approx.) |
 |---|---|---|
-| Speaches, `faster-distil-whisper-large-v3` (fp16) | 6 GB GPU (pinned with `--gpus device=N`) | ~1.5–2 GB, kept resident |
-| `qwen3:8b` (Q4_K_M, default) | Fits entirely on the 8 GB GPU | ~5–6 GB with 4–8k context |
-| `qwen3:14b` (Q4_K_M) | Ollama splits it across both GPUs | ~9–10 GB total |
+| Speaches (faster-whisper) | GTX 1060 6 GB, CUDA (pinned with `--gpus device=N`) | ~0.5–2 GB depending on the Whisper model, kept resident |
+| `qwen3:8b` (Q4_K_M, default) | RX 580 8 GB, Vulkan: all 37/37 layers on the GPU | ~5.3 GB with 4k context (4.6 GB weights + 0.6 GB KV cache) |
+| `nomic-embed-text` (kb-core embeddings) | Same GPU as the chat model | ~0.3 GB |
 
-- Ollama sees both GPUs and places layers itself; flash attention (`OLLAMA_FLASH_ATTENTION=1`) reduces KV-cache
-  memory. If a large model spills to CPU (`ollama ps` shows a CPU %), use the 8B model or a smaller context.
+- Ollama picks the AMD card through its **Vulkan** backend (`journalctl -u ollama | grep "using device"` shows
+  `Vulkan0 (AMD Radeon RX 580 …)`). ROCm doesn't support this card (Polaris), and it doesn't appear in `nvidia-smi`.
+- `ollama ps` reporting `100% GPU` is the check that matters. If it shows a CPU share, use a smaller model or context.
+- Models larger than ~7 GB (e.g. 14B at Q4) don't fit on either card alone. Splitting one model across the AMD
+  (Vulkan) and NVIDIA (CUDA) cards hasn't been tested here; expect CPU offload instead.
 - The 48 GB of system RAM leaves plenty of headroom for CPU offload, the Rust build and the app.
-- Want the whole 8 GB card for the LLM only? Add `Environment="CUDA_VISIBLE_DEVICES=<8GB index>"` to the Ollama
-  drop-in. Then 14B models no longer fit on the GPU.
+- `bootstrap.sh` detects GPUs with `nvidia-smi` only, so it sizes the suggested chat model from the NVIDIA card and
+  ignores the AMD one. The suggestion (`qwen3:8b`) happens to be right for this machine.
 
-Check live usage with `nvidia-smi` and `ollama ps`.
+Check live usage with `ollama ps`, `nvidia-smi` (NVIDIA) and OMNIX's System Control view, which shows both vendors.
 
 ---
 

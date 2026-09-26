@@ -15,7 +15,8 @@ tells you how to install, verify, run, fix, and change it. Read it fully before 
 Goal: OMNIX fully working. Chat answers from a local model, push-to-talk transcribes, read-aloud speaks, policy
 approvals appear, and `./scripts/doctor.sh` exits 0.
 
-Target hardware (the owner's server): i7 12-core, 48 GB RAM, two NVIDIA GPUs (8 GB + 6 GB), Ubuntu/Debian.
+Target hardware (the owner's server): i7 12-core, 48 GB RAM, an AMD RX 580 8 GB (runs Ollama
+via Vulkan) and an NVIDIA GTX 1060 6 GB (runs Speaches via CUDA), Ubuntu/Debian.
 
 ### Procedure
 
@@ -35,7 +36,7 @@ Target hardware (the owner's server): i7 12-core, 48 GB RAM, two NVIDIA GPUs (8 
 5. **Hand over the GUI checks** to the user. You cannot click native dialogs: Settings → AI Models → Test;
    Settings → Voice → Test microphone; `/execute touch /tmp/x` shows an approval dialog; Settings → Security →
    Verify audit log.
-6. **Report**: what was installed, the doctor output, the GPU split (`nvidia-smi`, `ollama ps`), and anything left for
+6. **Report**: what was installed, the doctor output, the GPU split (`ollama ps`, `nvidia-smi`; the AMD card only shows in `journalctl -u ollama`), and anything left for
    the user.
 
 ### Things only the human can do: stop and ask
