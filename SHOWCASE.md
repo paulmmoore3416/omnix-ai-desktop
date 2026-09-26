@@ -34,6 +34,12 @@ Everything below describes what is implemented and tested in this repository.
   policy engine as the user; tool output is wrapped as untrusted data
   (prompt-injection mitigation); bounded autonomy.
 - **MCP client** (official `rmcp` SDK) with policy-gated, audited tool calls.
+- **kb-core long-term memory engine** (Python, SQLite FTS5 + exact vectors): automatic recall before every
+  reply with a **calibrated 0–1 relevance** (lift over the query's background similarity), personalised
+  first-person → third-person query variants, hybrid keyword + semantic search with MMR diversity, memory
+  activation (importance, recency, use, reinforcement), **contradiction-aware consolidation** (the local LLM
+  judges duplicate vs. obsolete; supersession is reversible), opt-in fact capture from conversations, live
+  incremental folder sync, and graceful degradation when the embedding model is down.
 - **Local-only mode** that blocks cloud providers and non-private endpoints in
   Rust, built for machines on healthcare networks (no PHI egress).
 - **Voice**: push-to-talk speech-to-text (faster-whisper) and Piper TTS.
@@ -44,6 +50,12 @@ Everything below describes what is implemented and tested in this repository.
   conditions and 4 signal ripples wired to real backend state, tool-call
   satellites, voice-reactive waveform, flick-to-spin rings, and an in-app
   colour key.
+- **System Control and unattended automation**: telemetry for every GPU
+  (NVIDIA via `nvidia-smi`, AMD via sysfs), 1-hour metric history, systemd
+  services and Docker containers, a model manager, alerts, automations and
+  cron schedules. Unattended commands need one native approval, stored as an
+  HMAC-SHA256 over rule id, command and cwd with a keychain key the webview
+  can't reach, and are re-classified by the policy engine at every run.
 - **One-command deployment**: `scripts/bootstrap.sh` provisions a fresh
   Ubuntu server (Ollama + GPU-sized models, Speaches STT on CUDA, Piper TTS,
   seeded settings, `.deb` install); `scripts/doctor.sh` verifies it.
@@ -55,15 +67,16 @@ Everything below describes what is implemented and tested in this repository.
 | Frontend | SvelteKit 5 (runes), TypeScript, Tailwind CSS, `marked` + DOMPurify |
 | Backend | Rust, Tauri 2, tokio, reqwest (rustls), sysinfo, keyring, tracing, rmcp |
 | AI | Ollama, Anthropic Messages API, OpenAI-compatible APIs |
-| Memory | External kb-core service (PostgreSQL/pgvector) via a REST adapter |
+| Memory | kb-core (Python stdlib + optional numpy, SQLite FTS5, Ollama `nomic-embed-text`) via a documented REST contract |
 | Quality | cargo clippy `-D warnings`, cargo test, cargo audit, svelte-check, Vitest, npm audit |
 | CI/CD | GitHub Actions (SHA-pinned actions, 3-OS build matrix, secret scan), tag-triggered draft releases |
 
 ## Architecture
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the module map and
-sequence diagrams, and [`docs/SECURITY.md`](docs/SECURITY.md) for the threat
-model.
+sequence diagrams, [`docs/TECHNICAL_REFERENCE.md`](docs/TECHNICAL_REFERENCE.md)
+for every command, setting and algorithm, and [`docs/SECURITY.md`](docs/SECURITY.md)
+for the threat model. The story behind it: [`docs/articles/medium-omnix-kb-core.md`](docs/articles/medium-omnix-kb-core.md).
 
 ## Engineering decisions worth discussing
 
@@ -79,15 +92,23 @@ model.
    controls are disabled, instead of reporting success.
 5. **Model output is data.** Tool results are delimited and escaped, and the
    chat renderer sanitizes Markdown and neutralizes links.
+6. **Measure before you threshold.** Calibrating kb-core on real embeddings
+   showed "prefers morning meetings" vs "prefers afternoon meetings" at cosine
+   0.953, higher than a true paraphrase (0.951). Vector-only de-duplication
+   would silently lose changed facts, so ambiguous pairs go to an LLM judge.
 
 ## Test & quality snapshot
 
-- Rust: 108 unit tests, including policy bypass attempts, audit-chain
+- Rust: 144 unit tests, including policy bypass attempts, audit-chain
   tampering, secret migration, stream parsers (Ollama/Anthropic/OpenAI), an
-  MCP stdio end-to-end test, and executor timeouts/env clearing. Plus an
-  opt-in live Ollama test.
-- Frontend: 19 Vitest tests (API/error helpers, write-only secret field,
-  disabled-state UI, markdown sanitizer, voice helpers, WAV encoder).
+  MCP stdio end-to-end test, executor timeouts/env clearing and memory
+  recall-block escaping, HMAC approvals and settings validation. Plus opt-in
+  live tests (Ollama, host probes).
+- Frontend: 27 Vitest tests (API/error helpers, write-only secret field,
+  disabled-state UI, Knowledge view, markdown sanitizer, voice helpers, WAV encoder).
+- kb-core: 46 offline tests (consolidation, supersession, outage/backfill,
+  model change, personalisation, incremental re-index, HTTP guards), run in
+  CI with and without numpy.
 - `cargo clippy -D warnings`, `svelte-check` with 0 errors and 0 warnings,
   `npm audit` clean, `cargo audit` with 0 vulnerabilities.
 
@@ -109,13 +130,18 @@ model.
   prevent PHI leaving healthcare networks.
 - Hardened CI with **SHA-pinned GitHub Actions**, clippy `-D warnings`,
   dependency audits and a three-OS build matrix.
+- Built **kb-core**, a local long-term memory engine with calibrated hybrid
+  retrieval, contradiction-aware consolidation via an LLM judge, memory
+  activation modelling and incremental folder sync; lifted first-person recall
+  of third-person memories from 0.33 to 0.62 relevance with query
+  personalisation.
 
 ## Roadmap
 
 - AIORC gRPC routing backend (scaffolded; awaiting its `.proto`)
 - Signed releases and auto-update
-- Knowledge-base management, export/import
-- Services, automations, scheduler and alerts in System Control
+- Memory encryption at rest
+- Multi-host view (several OMNIX servers in one System Control)
 
 ## Links
 
