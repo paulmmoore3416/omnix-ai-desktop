@@ -1,13 +1,13 @@
 # OMNIX Server Deployment
 
-How to put OMNIX on a dedicated Linux machine with NVIDIA GPUs, using `scripts/bootstrap.sh`. Written for the
-reference box below; any Ubuntu/Debian machine with an NVIDIA GPU works the same way.
+How to put OMNIX on a dedicated Linux machine, using `scripts/bootstrap.sh`. Written for the reference box below;
+any Ubuntu/Debian machine with an NVIDIA GPU works the same way, and Ollama can also use AMD GPUs through Vulkan (§4).
 
 | Reference hardware | |
 |---|---|
 | CPU | Intel Core i7, 12 cores |
 | RAM | 48 GB |
-| GPU 0 / GPU 1 | 8 GB + 6 GB NVIDIA |
+| GPUs | AMD Radeon RX 580 8 GB (Ollama, via Vulkan) + NVIDIA GTX 1060 6 GB (Speaches, via CUDA) |
 | OS | Ubuntu 24.04 LTS or newer (Debian 12+ works) |
 
 ---
@@ -37,7 +37,7 @@ Layout B keeps working in **local-only mode** as long as the server address is p
    reboot and can break a running desktop:
    ```bash
    sudo ubuntu-drivers install && sudo reboot
-   nvidia-smi          # must list both GPUs
+   nvidia-smi          # must list your NVIDIA GPU(s); AMD cards don't appear here
    ```
 3. A normal user with `sudo`. Don't run the script as root.
 4. **GitHub access** (the repository is private): `sudo apt install gh && gh auth login`, or an SSH key on your account.
@@ -59,12 +59,12 @@ The first run takes 20–40 minutes, most of it model downloads and the Rust rel
 | Step | What happens | Idempotent how |
 |---|---|---|
 | System packages | WebKitGTK 4.1 + Tauri build deps, `libxdo-dev`, ALSA utils, `jq`, Python venv | Installs only missing packages |
-| GPU detection | Reads `nvidia-smi`; picks the **smallest** GPU for speech-to-text | Stops with instructions if no driver (unless `--cpu`) |
+| GPU detection | NVIDIA via `nvidia-smi`, AMD via sysfs (`scripts/lib/gpu.sh`); picks the **smallest** NVIDIA GPU for speech-to-text; installs Mesa's RADV Vulkan driver when an AMD card is present | Stops with instructions if no GPU at all (unless `--cpu`); AMD-only runs Speaches on the CPU |
 | Rust + Node | rustup stable (≥ 1.95), Node.js 24 from NodeSource | Skips if already new enough |
 | Dependencies | `npm ci`, `cargo fetch --locked` | Lockfiles are committed |
 | Ollama | Official installer, systemd drop-in `/etc/systemd/system/ollama.service.d/omnix.conf` (bind address, flash attention, 30 min keep-alive); pulls `qwen3:8b` + `qwen3:14b` | Skips installed models |
 | Docker + NVIDIA toolkit | `docker.io`, `nvidia-container-toolkit`, runtime configured; adds you to the `docker` group | Skips if present |
-| Speaches (STT) | Container `omnix-speaches` (`latest-cuda`), port 8000, pinned to the smallest GPU, model `Systran/faster-distil-whisper-large-v3` downloaded and kept loaded | Container is recreated each run so flags match |
+| Speaches (STT) | Container `omnix-speaches` (`latest-cuda`), port 8000, pinned to the smallest NVIDIA GPU (CPU image without one), model `Systran/faster-distil-whisper-large-v3` downloaded and kept loaded | Container is recreated each run so flags match |
 | Piper (TTS) | venv at `~/.local/share/omnix/piper-venv`, voice `en_US-lessac-medium` in `~/.local/share/omnix/voices/`, `~/.local/bin/piper` symlink, synth smoke test | Skips if present |
 | Settings | Fills empty values in `~/.config/omnix/settings.json` (model, STT URL/model, Piper path, **absolute** voice path); keeps your choices; timestamped backup; mode 600 | Merge, never overwrite |
 | App | `npm run tauri build -- --bundles deb`, then `apt install` of the `.deb` → `omnix` command + app launcher | Reinstalls the new build |
@@ -77,7 +77,7 @@ The first run takes 20–40 minutes, most of it model downloads and the Rust rel
 | `--services-only` | Ollama, Speaches, Piper and settings only; no app build |
 | `--no-services` | App only (use on thin clients in layout B) |
 | `--lan` | Bind Ollama (11434) and Speaches (8000) to `0.0.0.0` instead of `127.0.0.1` |
-| `--cpu` | Allow running without an NVIDIA GPU (CPU Speaches image) |
+| `--cpu` | Allow running without any GPU (CPU Speaches image, LLM on CPU) |
 | `--yes` | Non-interactive apt (automatic when there is no TTY) |
 
 ### Tunables (environment variables)
@@ -85,7 +85,7 @@ The first run takes 20–40 minutes, most of it model downloads and the Rust rel
 | Variable | Default | Notes |
 |---|---|---|
 | `OMNIX_CHAT_MODEL` | `qwen3:8b` | Default chat model (set only if settings have none) |
-| `OMNIX_EXTRA_MODELS` | `qwen3:14b` | Space-separated; `""` to skip |
+| `OMNIX_EXTRA_MODELS` | `qwen3:14b` if a GPU with ≥ 12 GB is free for the LLM, else none | Space-separated; `""` to skip; setting it always pulls |
 | `OMNIX_STT_MODEL` | `Systran/faster-distil-whisper-large-v3` | Any faster-whisper model id Speaches can download |
 | `OMNIX_STT_GPU` | smallest GPU index | Force Speaches onto a specific GPU |
 | `OMNIX_PIPER_VOICE` | `en_US-lessac-medium` | Any Piper voice id |
@@ -95,21 +95,26 @@ Example: `OMNIX_EXTRA_MODELS="qwen3:14b qwen2.5-coder:7b" ./scripts/bootstrap.sh
 
 ---
 
-## 4. GPU and memory layout (8 GB + 6 GB)
+## 4. GPU and memory layout (RX 580 8 GB + GTX 1060 6 GB)
+
+Measured on the reference machine (Ollama 0.34, 2026-09-26):
 
 | Workload | Where | VRAM (approx.) |
 |---|---|---|
-| Speaches, `faster-distil-whisper-large-v3` (fp16) | 6 GB GPU (pinned with `--gpus device=N`) | ~1.5–2 GB, kept resident |
-| `qwen3:8b` (Q4_K_M, default) | Fits entirely on the 8 GB GPU | ~5–6 GB with 4–8k context |
-| `qwen3:14b` (Q4_K_M) | Ollama splits it across both GPUs | ~9–10 GB total |
+| Speaches (faster-whisper) | GTX 1060 6 GB, CUDA (pinned with `--gpus device=N`) | ~0.5–2 GB depending on the Whisper model, kept resident |
+| `qwen3:8b` (Q4_K_M, default) | RX 580 8 GB, Vulkan: all 37/37 layers on the GPU | ~5.3 GB with 4k context (4.6 GB weights + 0.6 GB KV cache) |
+| `nomic-embed-text` (kb-core embeddings) | Same GPU as the chat model | ~0.3 GB |
 
-- Ollama sees both GPUs and places layers itself; flash attention (`OLLAMA_FLASH_ATTENTION=1`) reduces KV-cache
-  memory. If a large model spills to CPU (`ollama ps` shows a CPU %), use the 8B model or a smaller context.
+- Ollama picks the AMD card through its **Vulkan** backend (`journalctl -u ollama | grep "using device"` shows
+  `Vulkan0 (AMD Radeon RX 580 …)`). ROCm doesn't support this card (Polaris), and it doesn't appear in `nvidia-smi`.
+- `ollama ps` reporting `100% GPU` is the check that matters. If it shows a CPU share, use a smaller model or context.
+- Models larger than ~7 GB (e.g. 14B at Q4) don't fit on either card alone. Splitting one model across the AMD
+  (Vulkan) and NVIDIA (CUDA) cards hasn't been tested here; expect CPU offload instead.
 - The 48 GB of system RAM leaves plenty of headroom for CPU offload, the Rust build and the app.
-- Want the whole 8 GB card for the LLM only? Add `Environment="CUDA_VISIBLE_DEVICES=<8GB index>"` to the Ollama
-  drop-in. Then 14B models no longer fit on the GPU.
+- `bootstrap.sh` finds both cards, keeps Speaches on the GTX 1060 and counts the RX 580's 8 GB for the LLM, so it
+  skips the 14B extra model here. `doctor.sh` lists both cards and warns if the chat model isn't fully on the GPU.
 
-Check live usage with `nvidia-smi` and `ollama ps`.
+Check live usage with `ollama ps`, `nvidia-smi` (NVIDIA) and OMNIX's System Control view, which shows both vendors.
 
 ---
 
@@ -237,7 +242,9 @@ sudo rm /etc/systemd/system/ollama.service.d/omnix.conf && sudo systemctl daemon
 
 | Symptom | Cause / fix |
 |---|---|
-| `nvidia-smi not found/working` | Install the driver and reboot (§2). Or `--cpu` to continue without the GPU |
+| `no GPU found` | Install the NVIDIA driver and reboot (§2), or check the AMD card uses the `amdgpu` kernel driver. Or `--cpu` to continue without a GPU |
+| `chat model only N% on GPU` | The model doesn't fit in VRAM. Pick a smaller model (Settings → AI) or reduce context; `ollama ps` shows the split |
+| AMD card found but Ollama uses the CPU | `sudo apt install mesa-vulkan-drivers`, restart Ollama, then `journalctl -u ollama \| grep "using device"` should name the card |
 | `docker: permission denied` after install | Group membership applies at next login. The script uses `sudo docker` meanwhile; log out and back in |
 | Speaches never becomes healthy | `docker logs omnix-speaches`. On a GPU host, check `docker run --rm --gpus all ubuntu nvidia-smi` works; if not, `sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker` |
 | `could not download <model> (HTTP 4xx)` | Wrong STT model id, or no internet. Verify the id on Hugging Face |
