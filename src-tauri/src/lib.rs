@@ -157,6 +157,9 @@ pub fn run() {
             commands::chat::chat_send,
             commands::chat::chat_cancel,
             commands::chat::chat_reset,
+            // Side tasks (tool-less, parallel to chat)
+            commands::tasks::task_run,
+            commands::tasks::task_cancel,
             // Phone
             commands::phone::phone_test,
             commands::google::google_status,

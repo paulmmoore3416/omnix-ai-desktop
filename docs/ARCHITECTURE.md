@@ -38,6 +38,7 @@ flowchart TB
 
         subgraph ai["ai/*"]
             agent["agent<br/>tool loop, untrusted wrapping"]
+            tasks["tasks<br/>tool-less side tasks"]
             providerT["provider<br/>LlmProvider trait"]
             ollama["ollama<br/>/api/chat NDJSON"]
             anthropic["anthropic<br/>Messages SSE"]

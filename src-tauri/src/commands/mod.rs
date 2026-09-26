@@ -19,4 +19,5 @@ pub mod ops;
 pub mod phone;
 pub mod settings;
 pub mod system;
+pub mod tasks;
 pub mod voice;

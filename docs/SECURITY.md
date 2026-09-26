@@ -315,6 +315,16 @@ two memory tools (`search_memory`, `remember`).
   and other local users, not a process running as the same user while the
   keyring is unlocked. `kb-core export` files are plain JSON (mode 600).
 
+* **Side tasks** (`ai/tasks.rs`, `task_run`). These are one-shot generations
+  beside the chat, and **no tools are offered**, so they can't reach the
+  executor, files, memory, MCP or Google. A tool call the model emits anyway is
+  dropped, never run. Context from the webview (a reply, a metrics snapshot)
+  is wrapped with `wrap_untrusted`, `local_only` applies through
+  `build_provider`, and concurrency is capped by
+  `performance.max_concurrent_tasks`. Output is rendered through the same
+  DOMPurify path as chat. A side task that starts with `/` goes to
+  `process_command`, the same guarded path as typing it in chat.
+
 ## 10. MCP servers
 
 * Settings → **MCP Servers** registers stdio (local process) or streamable

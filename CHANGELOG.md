@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Workspace dock and side tasks.** A panel beside Home and the conversation (🧰 or Ctrl+.) with five tabs.
+  **Live**: CPU, memory, every GPU with VRAM, loaded models (with unload), network, disks and assistant
+  throughput. **Tasks**: *side tasks* run next to the chat (several at once, capped by Settings → Performance →
+  Max Concurrent Tasks, which now does something). They are tool-less (`task_run`: no commands, files, memory or
+  MCP), so they never need approval or wait for the chat. Any context they get is wrapped as untrusted, and
+  `local_only` applies as for chat. A task starting with `/` runs as a normal slash command. **Prompts**: an
+  editable prompt library with `{{input}}` fill-ins, sent to the chat or run as a side task.
+  **Pins**: a pinboard for replies and task results (copy, send to chat, save to memory). **Ops**: firing alerts,
+  upcoming schedules and automations with ▶ Run now, and recent activity.
+- **Situation brief.** One click (Home or the Tasks tab) writes an AI brief from a local snapshot of alerts, load,
+  disks, GPUs, loaded models and upcoming schedules. No chat text or memories go into it.
+- **Chat actions.** Each reply now has Copy, Pin, and one-click side tasks (Summarize, Action items, Explain
+  simply, Draft email, Critique) plus ↻ Ask again. Your own messages have ✎ Edit and ⚡ Side task. While a reply is
+  streaming, the input stays open and anything you send runs as a side task. ↑/↓ in an empty box recalls what
+  you sent.
 - **Google: Gmail, Drive and developer docs** (Settings → Google, off by default, unavailable in local-only mode).
   Gmail: search, read, and create drafts (OMNIX never sends mail). Drive: search, read Docs/Sheets/Slides and text
   files, and upload files OMNIX made, optionally converted to Google Sheets or Docs. Developer Knowledge API: search

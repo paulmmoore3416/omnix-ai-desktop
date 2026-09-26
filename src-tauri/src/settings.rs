@@ -474,7 +474,7 @@ impl Default for SecuritySettings {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PerformanceSettings {
-    /// Concurrency cap for background tasks.
+    /// How many side tasks (`ai::tasks`) may run at once.
     pub max_concurrent_tasks: u32,
     /// Enable caching.
     pub cache_enabled: bool,

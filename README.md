@@ -34,6 +34,7 @@
 | Model manager: installed and loaded Ollama models, load/unload, download with progress, delete | ✅ |
 | Agent host tools: `host_status`, `host_control`, `create_schedule`, `create_alert` | ✅ every change confirmed natively |
 | `/monitor` and process list with ending a process | ✅ |
+| Workspace dock beside the chat: live metrics, **parallel side tasks** (tool-less AI jobs that never block the chat), prompt library, pinboard, ops feed with Run now, one-click situation brief | ✅ |
 | Launch at login (Settings → General) | ✅ |
 | API keys stored in the OS keychain | ✅ |
 | Hash-chained, redacted audit log with a **Verify** button | ✅ |

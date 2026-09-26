@@ -76,6 +76,7 @@ That's all you need to start. Voice, memory, and cloud models are optional extra
 | **Settings** | Everything configurable (see [section 8](#8-settings-section-by-section)) |
 | **Knowledge** | Long-term memory: save and search memories, index documents (needs the memory service; see §3) |
 | **System Control** | Live CPU, memory, GPUs, disks and network; processes, services and Docker containers; AI models; alerts, automations and scheduled tasks; cleanup and optimization (see [§14](#14-system-control-watch-automate-and-maintain-your-computer)) |
+| **Workspace** | The panel on the right of Home and History: live metrics, side tasks, prompts, pins and ops (see [§3](#the-workspace-do-more-than-one-thing-at-once)). Hide or show it with 🧰 or **Ctrl + .** |
 | **Input bar** | 🎤 microphone, text box, and Send |
 
 OMNIX also sits in your **system tray**. Closing the window hides it there instead of quitting, so it's always one click away.
@@ -93,6 +94,36 @@ Type in the box at the bottom and press **Enter** (or click **Send**).
 - Click **⏹ Stop** to cut a long answer short.
 - Click **🧹 Clear** on the History screen to start a fresh conversation.
 - If voice is set up, click **🔊 Read aloud** under any reply to hear it.
+- Under each reply: **📋 Copy**, **📌 Pin** (to the Workspace pinboard), one-click side tasks (**📝 Summarize**,
+  **✅ Action items**, **💡 Explain simply**, **✉️ Draft email**, **🔍 Critique**) and **↻ Ask again** on the
+  latest one. Under your own messages: **✎ Edit** (puts it back in the box) and **⚡ Side task**.
+- Press **↑** in an empty box to bring back what you sent before (**↓** goes forward).
+
+### The Workspace: do more than one thing at once
+
+The Workspace panel sits to the right of Home and History. Click **🧰** in the input bar or press **Ctrl + .**
+to show or hide it. It has five tabs:
+
+| Tab | What it does |
+|---|---|
+| **📈 Live** | CPU and memory (last 5 minutes), each GPU with load, VRAM and temperature, the AI models loaded right now (⏏ unloads one to free VRAM), network, fullest disks, and how fast the assistant is answering |
+| **⚡ Tasks** | **Side tasks** run next to the chat. Type a request and press **Run side task** (or Ctrl+Enter). Several can run at once. Each card streams its answer and has Stop, Copy, Pin, **💬 To chat** (puts the result in your chat box) and Again. **📋 Brief** writes a situation brief (below). Start a task with `/` to run a command such as `/monitor` or `/recall` |
+| **📚 Prompts** | Your prompt library. Type a fill-in in the top box, then click **⚡ Task** or **💬 Chat** on a prompt. `{{input}}` in a prompt is replaced by the fill-in. Add, edit or delete prompts. **Reset to defaults** restores the built-in set (shift huddle agenda, incident summary, SOP outline, workbook, rewrite, explain a command) |
+| **📌 Pins** | Replies and task results you pinned. Copy them, send them back to the chat, or **🧠 Remember** one to save it to long-term memory. Pins stay on this computer |
+| **🛰️ Ops** | Alerts that are firing, what's scheduled next and your automations, each with **▶ Run now**, plus recent activity |
+
+**While OMNIX is replying, keep typing.** Anything you send before the reply finishes runs as a side task instead
+of waiting.
+
+**What side tasks can't do.** A side task only writes text. It has no tools, so it can't run commands, read or
+write files, search memory or use Gmail/Drive. That's why it never needs an approval and never waits on the main
+chat. For anything that needs tools, ask in the main chat. Settings → Performance → **Max Concurrent Tasks** sets
+how many can run at once (default 5). With a local model they share the same GPU, so with several running each
+one is slower.
+
+**Situation brief.** Click **📋 Situation brief** on Home (or **📋 Brief** in Tasks). OMNIX takes a snapshot of
+alerts, CPU, memory, disks, GPUs, loaded models, recent failures and upcoming schedules, and writes a short status
+(OK / Watch / Act) with suggested actions. Only those metrics go into it, never your chat or memories.
 
 ---
 
@@ -367,6 +398,9 @@ screen shows only "Key saved ✓", with no way to read the key back out.
 | **Ctrl + Space** (hold) | Push-to-talk from anywhere |
 | **Enter / Space** on the 🎤 button | Start / stop recording |
 | **Esc** | Cancel a recording · close command suggestions |
+| **Ctrl + .** | Show / hide the Workspace |
+| **↑ / ↓** (empty box) | Previous / next message you sent |
+| **Ctrl + Enter** (Tasks box) | Run a side task |
 | **/** | Start a command (shows suggestions) |
 
 ---

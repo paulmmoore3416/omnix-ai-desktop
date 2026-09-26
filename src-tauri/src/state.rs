@@ -57,6 +57,8 @@ pub struct AppState {
     pub phone_watch: crate::phone::DownWatch,
     /// Google access token (in memory) and sign-in lock.
     pub google: crate::google::GoogleSession,
+    /// Running side tasks (tool-less AI jobs beside the chat).
+    pub tasks: crate::ai::tasks::TaskRegistry,
 }
 
 impl AppState {
@@ -99,6 +101,7 @@ impl AppState {
             phone_limit: crate::phone::RateLimiter::default(),
             phone_watch: crate::phone::DownWatch::default(),
             google: crate::google::GoogleSession::default(),
+            tasks: crate::ai::tasks::TaskRegistry::default(),
         })
     }
 
