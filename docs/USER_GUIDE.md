@@ -70,7 +70,7 @@ That's all you need to start. Voice, memory, and cloud models are optional extra
 
 | Area | What it's for |
 |---|---|
-| **Home** | The avatar, quick-action buttons, and live stats |
+| **Home** | The avatar on a frosted-glass panel. Before you chat it shows quick-action buttons and live stats; once you chat, the conversation streams in below the avatar so you can watch it work |
 | **Commands** | A cheat sheet of the `/` commands |
 | **History** | The full conversation, with replies as they stream in |
 | **Settings** | Everything configurable (see [section 8](#8-settings-section-by-section)) |
@@ -87,12 +87,13 @@ OMNIX also sits in your **system tray**. Closing the window hides it there inste
 
 Type in the box at the bottom and press **Enter** (or click **Send**).
 
-- Replies **stream in live** on the History screen.
+- Replies **stream in live** right where you typed: on Home they appear under the avatar, which reacts as OMNIX
+  searches memory, runs tools and replies. The History screen shows the same conversation.
 - Ask naturally: *"What's using the most memory right now?"* or *"Summarize the file ~/notes/meeting.md"*.
 - OMNIX can **use tools** to answer: list folders, read files, run safe commands. Each tool it uses shows as a
   small note under the reply (🔧 requested, ✓ done, ✗ failed).
 - Click **⏹ Stop** to cut a long answer short.
-- Click **🧹 Clear** on the History screen to start a fresh conversation.
+- Click **🧹 Clear** (on Home or History) to start a fresh conversation.
 - If voice is set up, click **🔊 Read aloud** under any reply to hear it.
 - Under each reply: **📋 Copy**, **📌 Pin** (to the Workspace pinboard), one-click side tasks (**📝 Summarize**,
   **✅ Action items**, **💡 Explain simply**, **✉️ Draft email**, **🔍 Critique**) and **↻ Ask again** on the
@@ -275,9 +276,12 @@ About the approval pop-up:
 
 ## 7. Meet the avatar
 
-The Home screen shows OMNIX as a holographic core: a glowing reactor surrounded by rotating rings, a radar sweep,
-and a waveform ring that moves with your voice while you talk and with OMNIX's voice while it replies. The core
-follows your mouse. **Colour tells you what's going on**, in three layers:
+The Home screen shows OMNIX as a frameless holographic core near the top of the chat panel: a glowing reactor
+surrounded by rotating rings, a radar sweep, and a waveform ring that moves with your voice while you talk and with
+OMNIX's voice while it replies. The core follows your mouse, floats gently, and blinks now and then. The panel
+behind it is frosted glass over slowly moving colour, tinted to match the current mood. During a chat the mood
+changes as the work does: violet while thinking, teal while searching memory, amber while a tool runs, aqua
+while the reply streams in (sparks flow from the core down to the text). **Colour tells you what's going on**, in three layers:
 
 - **Mood** colours the core and inner rings: what OMNIX is doing right now.
 - **Condition** colours the outer halo and shows a ⚠ banner: a problem that needs your attention.
@@ -293,15 +297,17 @@ Click **KEY** in the avatar's corner to open the colour key in the app. It highl
 | Colour | Mood | It means | What it looks like |
 |---|---|---|---|
 | 🔵 Cyan `#29d8ff` | Standby | Ready and waiting | Slow ring drift, calm core breathing, an occasional scan |
-| 🔵 Blue `#4f8bff` | Listening | Recording your voice | Waveform ring jumps with your mic level |
-| 🟣 Violet `#8b7bff` | Thinking | Working out an answer | Inner rings speed up, data points orbit the core |
+| 🔵 Blue `#4f8bff` | Listening | Recording your voice | Waveform ring and equalizer jump with your mic level; particles drift into the core |
+| 🟣 Violet `#8b7bff` | Thinking | Working out an answer | Gyroscope rings turn in 3D, linked data points orbit the core |
 | 🟣 Purple `#c36bff` | Processing | Transcribing speech or computing | Counter-rotating rings, fast radar sweep |
-| 🟠 Amber `#ffb02e` | Executing | Running a command or tool | Outer ring steps round like a gear |
-| 🟢 Aqua `#4ff5d2` | Speaking | Replying to you | Waveform ring pulses with the voice |
+| 🟢 Teal `#00c2a8` | Searching | Looking through memory, files or the system (`/search`, `/recall`, `/monitor`, `/file read`/`list`, or recalling memories for a reply) | Wide radar sweep that lights up contacts as it passes |
+| 🪻 Lilac `#f0a8ff` | Remembering | Saving to long-term memory (`/remember`) | Particles spiral into the core, which flashes as each one lands |
+| 🟠 Amber `#ffb02e` | Executing | Running a command or tool | Outer ring steps round like a gear, arcs crackle from the core |
+| 🟢 Aqua `#4ff5d2` | Speaking | Replying to you (streaming text or reading aloud) | Equalizer pulses round the core; sparks stream toward the chat |
 | ⚪ Ice white `#d6ecff` | Focused | Concentrating on a task | Rings slow and tighten |
-| 🟡 Gold `#ffd84a` | Happy | Task finished, all good | Warm glow, gentle spin-up |
-| 🩷 Pink `#ff5ea8` | Excited | Something went really well | Fast spin with bursts of sparks |
-| 🟢 Green `#3dff95` | Success | Your request completed | Double shockwave ring |
+| 🟡 Gold `#ffd84a` | Happy | Task finished, all good | Warm glow, happy bounce, a puff of sparks |
+| 🩷 Pink `#ff5ea8` | Excited | A long request (over 8 s) finished cleanly | Fast spin with bursts of sparks |
+| 🟢 Green `#3dff95` | Success | Your request completed | Double shockwave ring and a burst of confetti |
 | 🩶 Slate `#9fb4c8` | Confused | Didn't catch that, or the input was unclear | Rings wobble back and forth |
 | 🔴 Red `#ff3d4f` | Error | The request failed (details in the pop-up) | Glitch shake and flicker |
 | 🔵 Navy `#3553b8` | Dormant | Quiet for 75 seconds | Dims and slows right down. Move the mouse or click the core to wake it |

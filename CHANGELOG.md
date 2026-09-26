@@ -39,6 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Security:** archived conversations (and the summaries made from them) are now redacted like the audit log,
   so an API key pasted into chat is no longer saved to searchable memory. ElevenLabs keys (`sk_…`) join the
   redaction patterns.
+- **Chat on Home.** The Home screen is now one fluid-glass panel (frosted glass over slowly drifting colour,
+  tinted by the avatar's mood). The avatar sits near the top and the conversation streams in below it, so sending
+  a message no longer jumps to History.
+- **Avatar motion.** New moods **Searching** (teal radar contacts) and **Remembering** (lilac particles spiralling
+  into the core), plus 3D gyroscope rings while thinking, lightning arcs while executing, a radial equalizer while
+  speaking or listening, sparks streaming toward the chat as a reply arrives, confetti on success, a float and a
+  blink. The mood now follows a chat turn live: searching memory, running a tool, replying.
 - Phone heads-ups (Settings → Phone): a text when an approval dialog is still open after `approval_wait_secs`
   (no details); a text when a model download or a rule's command/report ran at least `long_job_minutes`; alerts
   without their own phone choice call for critical ones and text for the rest (`alerts_by_severity`); a text when

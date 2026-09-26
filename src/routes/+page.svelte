@@ -1,16 +1,18 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { Channel } from '@tauri-apps/api/core';
   import { call, errorMessage, isAppError } from '$lib/api';
   import { listen } from '@tauri-apps/api/event';
   import { renderMarkdown } from '$lib/markdown';
   import { speak, startRecording, transcribe, type Recording } from '$lib/voice';
   import type { Settings, SystemStatus, UiEvent, OpsEvent, RecalledMemory } from '$lib/types';
-  import { conditionForError, type Condition, type Emotion, type Signal, type SignalKind } from '$lib/avatar';
+  import { MOODS, conditionForError, rgba, type Condition, type Emotion, type Signal, type SignalKind } from '$lib/avatar';
   import Avatar from '$lib/components/Avatar.svelte';
   import SettingsView from '$lib/components/SettingsView.svelte';
   import KnowledgeView from '$lib/components/KnowledgeView.svelte';
   import SystemControlView from '$lib/components/SystemControlView.svelte';
+  import WorkspaceDock from '$lib/components/workspace/WorkspaceDock.svelte';
+  import { REPLY_ACTIONS, copyText, type SideTask } from '$lib/workspace';
   
   let currentView = $state('home');
   let userInput = $state('');
@@ -40,6 +42,10 @@
   let issueGen = 0;
   let avatarSignal = $state<Signal | null>(null);
   let signalId = 0;
+  // Bumped per streamed chunk so the avatar sprays sparks toward the chat.
+  let streamTick = $state(0);
+  // The home panel's fluid glass is tinted with the avatar's current mood.
+  let moodColor = $derived(MOODS[avatarEmotion === 'idle' && isProcessing ? 'working' : avatarEmotion].color);
   let avatarCondition = $derived<Condition>(
     statusFailures >= 2
       ? 'offline'
@@ -123,6 +129,84 @@
     }, 5000);
   }
 
+  // Workspace dock (metrics, side tasks, prompts, pins, ops) beside Home and
+  // the conversation. It stays mounted while hidden so running side tasks
+  // survive view switches.
+  const DOCK_KEY = 'omnix.workspace.open';
+  let dockOpen = $state(readDockOpen());
+  let dock = $state<ReturnType<typeof WorkspaceDock> | undefined>();
+  let opsTick = $state(0);
+  let chatView = $derived(currentView === 'home' || currentView === 'history');
+  function readDockOpen() {
+    try {
+      return localStorage.getItem(DOCK_KEY) !== '0';
+    } catch {
+      return true;
+    }
+  }
+  $effect(() => {
+    try {
+      localStorage.setItem(DOCK_KEY, dockOpen ? '1' : '0');
+    } catch {
+      /* storage unavailable */
+    }
+  });
+
+  /** Run text as a side task (opens the dock). */
+  async function sideTask(text: string, opts: { title?: string; context?: string } = {}) {
+    dockOpen = true;
+    await tick();
+    dock?.runTask(text, opts);
+  }
+
+  function onSideTaskDone(t: SideTask) {
+    pulse(t.status === 'error' ? 'fail' : 'ok', 'side task');
+    if (!dockOpen || !chatView) {
+      addNotification(`⚡ Side task ${t.status === 'done' ? 'finished' : t.status}: ${t.title}`, t.status === 'error' ? 'error' : 'success');
+    }
+  }
+
+  /** Put text in the chat box (appending to anything already typed). */
+  function insertIntoInput(text: string) {
+    userInput = userInput.trim() ? `${userInput.trim()}\n\n${text}` : text;
+    if (!chatView) currentView = 'home';
+    tick().then(() => chatInput?.focus());
+  }
+
+  async function pinText(text: string, source: string) {
+    dockOpen = true;
+    await tick();
+    dock?.pin(text, source);
+  }
+
+  async function copyMessage(text: string) {
+    if (await copyText(text)) addNotification('Copied', 'success');
+    else addNotification('Copy is not allowed here: select the text instead', 'error');
+  }
+
+  /** Ask the last question again. */
+  function retryLast() {
+    const last = [...messages].reverse().find((m) => m.role === 'user');
+    if (!last || isProcessing) return;
+    userInput = last.content;
+    sendMessage();
+  }
+
+  // ↑/↓ in an empty chat box walks back through what you've sent.
+  let historyIndex = -1;
+  let chatInput = $state<HTMLInputElement | undefined>();
+  function handleHistoryKeys(event: KeyboardEvent) {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+    const sent = messages.filter((m) => m.role === 'user').map((m) => m.content);
+    if (!sent.length) return;
+    const browsing = historyIndex >= 0 && userInput === sent[sent.length - 1 - historyIndex];
+    if (!browsing && userInput.trim()) return;
+    if (!browsing) historyIndex = -1;
+    event.preventDefault();
+    historyIndex = event.key === 'ArrowUp' ? Math.min(historyIndex + 1, sent.length - 1) : historyIndex - 1;
+    userInput = historyIndex >= 0 ? sent[sent.length - 1 - historyIndex] : '';
+  }
+
   let navItems = $derived([
     { id: 'home', label: 'Home', icon: '🏠', badge: null },
     { id: 'commands', label: 'Commands', icon: '⚡', badge: null },
@@ -178,6 +262,7 @@
       const type = ev.kind === 'alert_resolved' || (ev.ok && ev.kind !== 'alert_fired') ? 'success' : ev.ok ? 'info' : 'error';
       addNotification(`${ev.kind === 'alert_fired' ? '⚠' : ev.ok ? '✓' : '✗'} ${ev.name}: ${ev.summary}`, type);
       pulse(ev.kind === 'alert_fired' || !ev.ok ? 'fail' : 'notice', ev.name);
+      opsTick++;
     }).then((u) => {
       if (alive) unlistenOps = u;
       else u();
@@ -197,15 +282,25 @@
   });
 
   async function sendMessage() {
-    if (!userInput.trim() || isProcessing) return;
+    if (!userInput.trim()) return;
+    if (isProcessing) {
+      // The chat is busy: don't make the user wait, run it beside the chat.
+      const text = userInput;
+      userInput = '';
+      showSuggestions = false;
+      addNotification('The chat is busy, so this runs as a side task in the Workspace', 'info');
+      await sideTask(text);
+      return;
+    }
 
+    historyIndex = -1;
     const query = userInput;
     messages = [...messages, { role: 'user', content: query, timestamp: new Date(), notes: [] }];
     userInput = '';
     showSuggestions = false;
     isProcessing = true;
-    isSpeaking = true;
-    avatarEmotion = query.startsWith('/execute') ? 'working' : query.includes('?') ? 'thinking' : 'processing';
+    avatarEmotion = moodForQuery(query);
+    const started = performance.now();
 
     try {
       if (query.startsWith('/')) {
@@ -216,9 +311,11 @@
         await streamChat(query);
       }
       avatarEmotion = 'success';
+      // A long job that finished cleanly earns a little celebration.
+      const long = performance.now() - started > 8000;
       later(() => {
-        avatarEmotion = 'happy';
-        later(() => (avatarEmotion = 'idle'), 2000);
+        avatarEmotion = long ? 'excited' : 'happy';
+        later(() => (avatarEmotion = 'idle'), long ? 2500 : 2000);
       }, 1000);
     } catch (error) {
       const msg = errorMessage(error);
@@ -238,9 +335,21 @@
     }
   }
 
-  /** Stream a chat turn: tokens, tool activity and notices arrive over a Channel. */
+  /** Which mood the avatar shows while a request runs. */
+  function moodForQuery(query: string): Emotion {
+    const q = query.trim().toLowerCase();
+    if (q.startsWith('/remember')) return 'remembering';
+    if (/^\/(search|recall|monitor|file (read|list))\b/.test(q)) return 'searching';
+    if (q.startsWith('/')) return 'working';
+    return q.includes('?') ? 'thinking' : 'processing';
+  }
+
+  /**
+   * Stream a chat turn: tokens, tool activity and notices arrive over a Channel.
+   * The reply stays in the current view, so on Home you can watch the avatar
+   * react (searching memory, running tools, replying) while the text arrives.
+   */
   async function streamChat(query: string) {
-    currentView = 'history';
     messages = [...messages, { role: 'assistant', content: '', timestamp: new Date(), notes: [] }];
     const reply = messages[messages.length - 1];
     const channel = new Channel<UiEvent>();
@@ -248,17 +357,25 @@
       switch (ev.type) {
         case 'token':
           reply.content += ev.text;
+          avatarEmotion = 'speaking';
+          isSpeaking = true;
+          streamTick++;
           break;
         case 'tool_call':
           reply.notes.push(`🔧 ${ev.name} requested`);
           pulse('tool', ev.name, ev.id);
+          avatarEmotion = 'working';
+          isSpeaking = false;
           break;
         case 'tool_result':
           reply.notes.push(`${ev.ok ? '✓' : '✗'} ${ev.name}: ${ev.summary}`);
           pulse(ev.ok ? 'ok' : 'fail', ev.name, ev.id);
+          // Back to thinking while the model reads the result.
+          avatarEmotion = 'thinking';
           break;
         case 'recalled':
           reply.recalled = ev.memories.map((m) => ({ ...m }));
+          if (ev.memories.length) avatarEmotion = 'searching';
           break;
         case 'notice':
           reply.notes.push(`ℹ ${ev.message}`);
@@ -482,11 +599,13 @@
   async function speakMessage(text: string) {
     try {
       isSpeaking = true;
+      if (!isProcessing) avatarEmotion = 'speaking';
       await speak(text);
     } catch (e) {
       addNotification(`Text-to-speech: ${errorMessage(e)}`, 'error');
     } finally {
       isSpeaking = false;
+      if (avatarEmotion === 'speaking' && !isProcessing) avatarEmotion = 'idle';
     }
   }
 
@@ -507,6 +626,11 @@
   // Esc cancels an in-progress recording from anywhere in the window.
   function handleWindowKeyDown(event: KeyboardEvent) {
     if (event.key === 'Escape' && micState === 'recording') cancelListening();
+    // Ctrl+. shows/hides the workspace dock.
+    if (event.key === '.' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      dockOpen = !dockOpen;
+    }
   }
 
   function selectSuggestion(suggestion: string) {
@@ -529,6 +653,8 @@
   }
 
   $effect(() => {
+    // Follow new messages and streamed reply text.
+    void streamTick;
     if (messages.length > 0) {
       const t = setTimeout(scrollToBottom, 100);
       return () => clearTimeout(t);
@@ -537,6 +663,73 @@
 </script>
 
 <svelte:window onkeydown={handleWindowKeyDown} />
+
+{#snippet conversation()}
+  <div class="space-y-3">
+    {#each recentMessages as message}
+      <div class="group glass-panel p-4 {message.role === 'user' ? 'bg-cosmic-blue/10' : 'bg-cosmic-purple/10'} animate-slide-in">
+        <div class="flex items-start gap-3">
+          <span class="text-2xl">{message.role === 'user' ? '👤' : '🤖'}</span>
+          <div class="flex-1">
+            <div class="text-sm text-gray-400 mb-1">
+              {message.timestamp.toLocaleTimeString()}
+            </div>
+            {#if message.role === 'assistant'}
+              <!-- Model output is untrusted: always sanitized by renderMarkdown. -->
+              <div class="md-content text-white">{@html renderMarkdown(message.content)}</div>
+            {:else}
+              <div class="text-white whitespace-pre-wrap">{message.content}</div>
+            {/if}
+            {#if message.role === 'assistant' && message.content}
+              <div class="msg-actions opacity-60 group-hover:opacity-100 focus-within:opacity-100 transition-opacity mt-1.5 flex flex-wrap items-center gap-1 text-xs text-gray-400">
+                {#if voiceAvailable}
+                  <button class="msg-act" onclick={() => speakMessage(message.content)} title="Read aloud (Piper)">🔊 Read aloud</button>
+                {/if}
+                <button class="msg-act" onclick={() => copyMessage(message.content)} title="Copy the reply">📋 Copy</button>
+                <button class="msg-act" onclick={() => pinText(message.content, `Reply · ${message.timestamp.toLocaleString()}`)} title="Pin to the workspace board">📌 Pin</button>
+                {#each REPLY_ACTIONS as a (a.label)}
+                  <button class="msg-act" onclick={() => sideTask(a.instruction, { title: `${a.icon} ${a.label}`, context: message.content })} title="{a.label}: runs as a side task, the chat stays free">{a.icon} {a.label}</button>
+                {/each}
+                {#if message === messages[messages.length - 1] && !isProcessing}
+                  <button class="msg-act" onclick={retryLast} title="Ask the last question again">↻ Ask again</button>
+                {/if}
+              </div>
+            {:else if message.role === 'user'}
+              <div class="msg-actions opacity-60 group-hover:opacity-100 focus-within:opacity-100 transition-opacity mt-1 flex gap-1 text-xs text-gray-400">
+                <button class="msg-act" onclick={() => insertIntoInput(message.content)} title="Edit and send again">✎ Edit</button>
+                <button class="msg-act" onclick={() => sideTask(message.content)} title="Run this as a side task (no tools), next to the chat">⚡ Side task</button>
+              </div>
+            {/if}
+            {#if message.notes.length}
+              <ul class="mt-2 space-y-1 text-xs text-gray-400">
+                {#each message.notes as note}<li>{note}</li>{/each}
+              </ul>
+            {/if}
+            {#if message.recalled?.length}
+              <details class="mt-2 text-xs text-gray-400">
+                <summary class="cursor-pointer hover:text-white">🧠 Memories used ({message.recalled.length})</summary>
+                <ul class="mt-1 space-y-1">
+                  {#each message.recalled as m (m.id)}
+                    <li class="flex items-start gap-2">
+                      <!-- Memory text is data: plain-text interpolation only. -->
+                      <span class="flex-1">{m.preview}</span>
+                      {#if m.vote}
+                        <span class="shrink-0">{m.vote === 'wrong' ? 'Flagged: ranked lower from now on' : 'Thanks'}</span>
+                      {:else}
+                        <button class="shrink-0 hover:text-white" title="This memory helped" onclick={() => recallFeedback(message, m, true)}>👍</button>
+                        <button class="shrink-0 hover:text-white" title="Wrong or not relevant: rank it lower (it is not deleted)" onclick={() => recallFeedback(message, m, false)}>👎</button>
+                      {/if}
+                    </li>
+                  {/each}
+                </ul>
+              </details>
+            {/if}
+          </div>
+        </div>
+      </div>
+    {/each}
+  </div>
+{/snippet}
 
 <div class="flex h-screen w-screen overflow-hidden cosmic-gradient">
   <!-- UI Enhancement: Animated background particles with performance optimization -->
@@ -574,7 +767,7 @@
   <aside class="w-64 glass-panel m-4 p-6 flex flex-col z-10 animate-slide-in-left">
     <div class="mb-8">
       <h1 class="text-3xl font-bold glow-text animate-glow-pulse">OMNIX</h1>
-      <p class="text-xs text-cosmic-cyan mt-1">v1.0.0 Enhanced</p>
+      <p class="text-xs text-cosmic-cyan mt-1">v1.1.0</p>
     </div>
 
     <nav class="flex-1 space-y-2">
@@ -639,60 +832,69 @@
   <!-- Main Content Area -->
   <main class="flex-1 flex flex-col p-4 z-10">
     {#if currentView === 'home'}
-      <!-- Home View with Enhanced Avatar -->
-      <div class="flex-1 flex flex-col items-center justify-center">
-        <!-- Enhanced AI Avatar -->
-        <Avatar 
-          emotion={avatarEmotion}
-          isSpeaking={isSpeaking}
-          isWorking={isProcessing}
-          micLevel={micLevel}
-          condition={avatarCondition}
-          signal={avatarSignal}
-          cpu={systemStatus.cpu}
-          memory={systemStatus.memory}
-        />
-
-        <h2 class="text-4xl font-bold glow-text mb-4 mt-8">OMNIX</h2>
-        <p class="text-xl text-gray-300 mb-8">Your local-first AI desktop assistant</p>
-
-        <!-- UI Enhancement: Quick action buttons -->
-        <div class="flex gap-3 mb-8">
-          <button 
-            onclick={() => quickAction('/monitor')}
-            class="glass-panel px-4 py-2 hover:bg-white/10 transition-all hover:scale-105"
-          >
-            <span class="text-sm">📊 System Status</span>
-          </button>
-          <button 
-            onclick={() => quickAction('/execute ls -la')}
-            class="glass-panel px-4 py-2 hover:bg-white/10 transition-all hover:scale-105"
-          >
-            <span class="text-sm">📁 List Files</span>
-          </button>
-          <button 
-            onclick={() => quickAction('What can you do?')}
-            class="glass-panel px-4 py-2 hover:bg-white/10 transition-all hover:scale-105"
-          >
-            <span class="text-sm">❓ Help</span>
-          </button>
+      <!-- Home: one fluid-glass panel. The avatar sits near the top and the
+           conversation streams in below it, so you can chat and watch it work. -->
+      <div
+        class="fluid-glass flex-1 min-h-0 flex flex-col animate-fade-in"
+        class:busy={isProcessing}
+        style="--fluid: {moodColor}; --fluid-soft: {rgba(moodColor, 0.35)};"
+      >
+        <div class="fluid-blobs" aria-hidden="true">
+          <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span><span class="blob b4"></span>
         </div>
 
-        <!-- Enhanced Quick Stats -->
-        <div class="grid grid-cols-3 gap-4 w-full max-w-2xl">
-          <div class="glass-panel p-4 text-center hover:scale-105 transition-transform cursor-pointer">
-            <div class="text-3xl font-bold text-cosmic-cyan animate-count-up">{messages.length}</div>
-            <div class="text-sm text-gray-400 mt-1">Commands</div>
-          </div>
-          <div class="glass-panel p-4 text-center hover:scale-105 transition-transform cursor-pointer">
-            <div class="text-3xl font-bold text-cosmic-cyan">{systemStatus.processes}</div>
-            <div class="text-sm text-gray-400 mt-1">Processes</div>
-          </div>
-          <div class="glass-panel p-4 text-center hover:scale-105 transition-transform cursor-pointer">
-            <div class="text-3xl font-bold text-green-400">{Math.floor(systemStatus.uptime / 3600)}h</div>
-            <div class="text-sm text-gray-400 mt-1">System uptime</div>
-          </div>
+        <div class="relative z-10 flex-shrink-0 flex justify-center pt-3">
+          <Avatar
+            emotion={avatarEmotion}
+            isSpeaking={isSpeaking}
+            isWorking={isProcessing}
+            micLevel={micLevel}
+            condition={avatarCondition}
+            signal={avatarSignal}
+            cpu={systemStatus.cpu}
+            memory={systemStatus.memory}
+            scale={messages.length ? 0.82 : 1}
+            {streamTick}
+          />
         </div>
+
+        {#if messages.length === 0}
+          <div class="relative z-10 flex-1 min-h-0 overflow-auto flex flex-col items-center px-6 pb-6">
+            <h2 class="text-4xl font-bold glow-text mb-2 mt-4">OMNIX</h2>
+            <p class="text-lg text-gray-300 mb-6">Your local-first AI desktop assistant</p>
+
+            <div class="flex flex-wrap justify-center gap-3 mb-6">
+              <button onclick={() => quickAction('/monitor')} class="glass-chip">📊 System Status</button>
+              <button onclick={() => quickAction('/execute ls -la')} class="glass-chip">📁 List Files</button>
+              <button onclick={() => quickAction('What can you do?')} class="glass-chip">❓ Help</button>
+              <button onclick={async () => { dockOpen = true; await tick(); dock?.brief(); }} class="glass-chip" title="AI brief of alerts, load, GPUs, models and schedules; runs beside the chat">📋 Situation brief</button>
+              <button onclick={() => sideTask('/recall')} class="glass-chip" title="Your most recent memories, as a side task">🧠 Recent memories</button>
+            </div>
+            <p class="text-xs text-gray-400 mb-6 -mt-3">Tip: while OMNIX is replying you can keep typing. New requests run as side tasks in the Workspace (Ctrl+.).</p>
+
+            <div class="grid grid-cols-3 gap-4 w-full max-w-2xl">
+              <div class="glass-chip p-4 text-center">
+                <div class="text-3xl font-bold text-cosmic-cyan">{messages.length}</div>
+                <div class="text-sm text-gray-400 mt-1">Commands</div>
+              </div>
+              <div class="glass-chip p-4 text-center">
+                <div class="text-3xl font-bold text-cosmic-cyan">{systemStatus.processes}</div>
+                <div class="text-sm text-gray-400 mt-1">Processes</div>
+              </div>
+              <div class="glass-chip p-4 text-center">
+                <div class="text-3xl font-bold text-green-400">{Math.floor(systemStatus.uptime / 3600)}h</div>
+                <div class="text-sm text-gray-400 mt-1">System uptime</div>
+              </div>
+            </div>
+          </div>
+        {:else}
+          <div class="relative z-10 flex items-center justify-end px-5 pt-1">
+            <button onclick={clearConversation} disabled={isProcessing} class="glass-chip px-3 py-1 text-xs disabled:opacity-50">🧹 Clear</button>
+          </div>
+          <div class="relative z-10 flex-1 min-h-0 overflow-auto px-5 pb-5 pt-2 chat-fade" bind:this={messageContainer}>
+            {@render conversation()}
+          </div>
+        {/if}
       </div>
     {:else if currentView === 'commands'}
       <!-- Commands View -->
@@ -725,56 +927,10 @@
           <h2 class="text-2xl font-bold glow-text">Conversation</h2>
           <button onclick={clearConversation} disabled={isProcessing} class="glass-panel px-3 py-1 text-sm hover:bg-white/10 disabled:opacity-50">🧹 Clear</button>
         </div>
-        <div class="space-y-3">
-          {#each recentMessages as message}
-            <div class="glass-panel p-4 {message.role === 'user' ? 'bg-cosmic-blue/10' : 'bg-cosmic-purple/10'} animate-slide-in">
-              <div class="flex items-start gap-3">
-                <span class="text-2xl">{message.role === 'user' ? '👤' : '🤖'}</span>
-                <div class="flex-1">
-                  <div class="text-sm text-gray-400 mb-1">
-                    {message.timestamp.toLocaleTimeString()}
-                  </div>
-                  {#if message.role === 'assistant'}
-                    <!-- Model output is untrusted: always sanitized by renderMarkdown. -->
-                    <div class="md-content text-white">{@html renderMarkdown(message.content)}</div>
-                  {:else}
-                    <div class="text-white whitespace-pre-wrap">{message.content}</div>
-                  {/if}
-                  {#if message.role === 'assistant' && voiceAvailable && message.content}
-                    <button class="mt-1 text-xs text-gray-400 hover:text-white" onclick={() => speakMessage(message.content)} title="Read aloud (Piper)">🔊 Read aloud</button>
-                  {/if}
-                  {#if message.notes.length}
-                    <ul class="mt-2 space-y-1 text-xs text-gray-400">
-                      {#each message.notes as note}<li>{note}</li>{/each}
-                    </ul>
-                  {/if}
-                  {#if message.recalled?.length}
-                    <details class="mt-2 text-xs text-gray-400">
-                      <summary class="cursor-pointer hover:text-white">🧠 Memories used ({message.recalled.length})</summary>
-                      <ul class="mt-1 space-y-1">
-                        {#each message.recalled as m (m.id)}
-                          <li class="flex items-start gap-2">
-                            <!-- Memory text is data: plain-text interpolation only. -->
-                            <span class="flex-1">{m.preview}</span>
-                            {#if m.vote}
-                              <span class="shrink-0">{m.vote === 'wrong' ? 'Flagged: ranked lower from now on' : 'Thanks'}</span>
-                            {:else}
-                              <button class="shrink-0 hover:text-white" title="This memory helped" onclick={() => recallFeedback(message, m, true)}>👍</button>
-                              <button class="shrink-0 hover:text-white" title="Wrong or not relevant: rank it lower (it is not deleted)" onclick={() => recallFeedback(message, m, false)}>👎</button>
-                            {/if}
-                          </li>
-                        {/each}
-                      </ul>
-                    </details>
-                  {/if}
-                </div>
-              </div>
-            </div>
-          {/each}
-          {#if messages.length === 0}
-            <p class="text-gray-400 text-center py-8">No messages yet</p>
-          {/if}
-        </div>
+        {@render conversation()}
+        {#if messages.length === 0}
+          <p class="text-gray-400 text-center py-8">No messages yet</p>
+        {/if}
       </div>
     {:else if currentView === 'settings'}
       <!-- Settings View -->
@@ -874,20 +1030,25 @@
 
         <input
           type="text"
+          bind:this={chatInput}
           value={userInput}
           oninput={(e) => handleInputChange(e.currentTarget.value)}
           onkeypress={handleKeyPress}
-          placeholder="Ask OMNIX anything, or type / for commands"
+          onkeydown={handleHistoryKeys}
+          placeholder={isProcessing ? 'OMNIX is replying. Anything you send now runs as a side task' : 'Ask OMNIX anything, or type / for commands (↑ for history)'}
           class="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-cosmic-cyan focus:ring-2 focus:ring-cosmic-cyan/20 transition-all"
-          disabled={isProcessing}
         />
 
         {#if isProcessing}
           <button onclick={stopResponse} class="px-4 py-3 glass-panel hover:bg-white/10 text-sm" title="Stop the current response">⏹ Stop</button>
         {/if}
+        {#if !dockOpen && chatView}
+          <button onclick={() => (dockOpen = true)} class="px-3 py-3 glass-panel hover:bg-white/10 text-sm" title="Show the workspace: live metrics, side tasks, prompts, pins (Ctrl+.)">🧰</button>
+        {/if}
         <button
           onclick={sendMessage}
-          disabled={isProcessing || !userInput.trim()}
+          disabled={!userInput.trim()}
+          title={isProcessing ? 'Run as a side task beside the current reply' : 'Send'}
           class="px-6 py-3 bg-cosmic-blue hover:bg-cosmic-cyan text-white rounded-lg font-medium transition-all duration-200 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-105 active:scale-95"
         >
           {#if isProcessing}
@@ -895,6 +1056,7 @@
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
+            {#if userInput.trim()}<span>⚡ Side task</span>{/if}
           {:else}
             <span>Send</span>
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -905,6 +1067,24 @@
       </div>
     </div>
   </main>
+
+  <!-- Workspace dock: mounted once, shown beside Home and the conversation. -->
+  <div class="z-10 py-4 pr-4 flex min-h-0" class:hidden={!dockOpen || !chatView}>
+    <WorkspaceDock
+      bind:this={dock}
+      {opsTick}
+      notify={addNotification}
+      onChat={(text) => {
+        if (!chatView) currentView = 'home';
+        userInput = text;
+        sendMessage();
+      }}
+      onInsert={insertIntoInput}
+      onOpenRules={() => (currentView = 'system')}
+      onTaskDone={onSideTaskDone}
+      onClose={() => (dockOpen = false)}
+    />
+  </div>
 </div>
 
 <style>
@@ -948,6 +1128,90 @@
     }
   }
 
+  /*
+   * Home panel: frosted glass over slow, blurred colour blobs tinted by the
+   * avatar's mood. Blobs drift faster while a request runs.
+   */
+  @property --fluid { syntax: '<color>'; inherits: true; initial-value: #29d8ff; }
+  @property --fluid-soft { syntax: '<color>'; inherits: true; initial-value: rgba(41, 216, 255, 0.35); }
+  .fluid-glass {
+    position: relative;
+    overflow: hidden;
+    border-radius: 28px;
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.02) 40%, rgba(255, 255, 255, 0.05));
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow:
+      0 30px 80px -20px rgba(0, 0, 0, 0.6),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      inset 0 0 60px -30px var(--fluid-soft);
+    -webkit-backdrop-filter: blur(24px) saturate(160%);
+    backdrop-filter: blur(24px) saturate(160%);
+    transition: --fluid 1s ease, --fluid-soft 1s ease;
+  }
+  /* A soft specular sheen across the top of the glass. */
+  .fluid-glass::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 60% 0;
+    background: linear-gradient(to bottom, rgba(255, 255, 255, 0.07), transparent);
+    pointer-events: none;
+    z-index: 1;
+  }
+  .fluid-blobs {
+    position: absolute;
+    inset: -20%;
+    filter: blur(70px) saturate(140%);
+    opacity: 0.55;
+    pointer-events: none;
+  }
+  .blob {
+    position: absolute;
+    width: 45%;
+    aspect-ratio: 1;
+    border-radius: 42% 58% 63% 37% / 45% 40% 60% 55%;
+    mix-blend-mode: screen;
+    animation: blob-drift 26s ease-in-out infinite, blob-morph 14s ease-in-out infinite;
+  }
+  .blob.b1 { top: 5%; left: 25%; background: var(--fluid); }
+  .blob.b2 { top: 40%; left: 5%; background: #3b5bff; animation-delay: -7s, -3s; animation-duration: 31s, 17s; }
+  .blob.b3 { top: 45%; left: 50%; background: #9b5cff; animation-delay: -15s, -9s; animation-duration: 29s, 12s; }
+  .blob.b4 { top: 0%; left: 60%; width: 30%; background: var(--fluid-soft); animation-delay: -4s, -6s; animation-duration: 22s, 10s; }
+  .fluid-glass.busy .blob { animation-duration: 9s, 5s; }
+  .fluid-glass.busy .fluid-blobs { opacity: 0.75; }
+  @keyframes blob-drift {
+    0%, 100% { transform: translate(0, 0) rotate(0deg) scale(1); }
+    33% { transform: translate(18%, 12%) rotate(60deg) scale(1.15); }
+    66% { transform: translate(-14%, 8%) rotate(-40deg) scale(0.9); }
+  }
+  @keyframes blob-morph {
+    0%, 100% { border-radius: 42% 58% 63% 37% / 45% 40% 60% 55%; }
+    50% { border-radius: 60% 40% 35% 65% / 55% 62% 38% 45%; }
+  }
+  /* Messages fade out under the avatar instead of hitting a hard edge. */
+  .chat-fade {
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
+    mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
+  }
+  .glass-chip {
+    padding: 0.5rem 1rem;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    font-size: 0.875rem;
+    transition: background-color 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+  }
+  button.glass-chip:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: var(--fluid-soft);
+    transform: translateY(-1px);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .blob { animation: none; }
+  }
+
   /* Rendered (sanitized) markdown in assistant messages. */
   .md-content :global(pre) {
     background: rgba(0, 0, 0, 0.35);
@@ -972,6 +1236,17 @@
     text-decoration: underline;
     color: #7dd3fc;
     cursor: help;
+  }
+
+  /* Per-message actions: quiet until you hover the message. */
+  .msg-act {
+    padding: 0.1rem 0.45rem;
+    border-radius: 8px;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .msg-act:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
   }
 
   /* Push-to-talk: a ring that swells with the live input level. */

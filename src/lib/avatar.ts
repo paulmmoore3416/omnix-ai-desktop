@@ -12,7 +12,7 @@
 
 export type Emotion =
   | 'idle' | 'thinking' | 'speaking' | 'working' | 'happy' | 'excited' | 'focused'
-  | 'confused' | 'success' | 'error' | 'listening' | 'processing';
+  | 'confused' | 'success' | 'error' | 'listening' | 'processing' | 'searching' | 'remembering';
 
 /** Moods the avatar can display: every Emotion plus states it enters on its own. */
 export type Mood = Emotion | 'dormant';
@@ -36,15 +36,17 @@ export interface Swatch {
 
 export const MOODS: Record<Mood, Swatch> = {
   idle: { color: '#29d8ff', label: 'Standby', meaning: 'Ready and waiting', effect: 'Slow ring drift, calm core breathing' },
-  listening: { color: '#4f8bff', label: 'Listening', meaning: 'Recording your voice', effect: 'Waveform ring follows your mic level' },
-  thinking: { color: '#8b7bff', label: 'Thinking', meaning: 'Working out an answer', effect: 'Inner rings speed up, orbiting data motes' },
+  listening: { color: '#4f8bff', label: 'Listening', meaning: 'Recording your voice', effect: 'Waveform and equalizer follow your mic; sound particles drift in' },
+  thinking: { color: '#8b7bff', label: 'Thinking', meaning: 'Working out an answer', effect: 'Gyroscope rings turn in 3D, linked data motes orbit' },
   processing: { color: '#c36bff', label: 'Processing', meaning: 'Transcribing or computing', effect: 'Counter-rotating rings, fast radar sweep' },
-  working: { color: '#ffb02e', label: 'Executing', meaning: 'Running a command or tool', effect: 'Segmented rings lock and step like a gear' },
-  speaking: { color: '#4ff5d2', label: 'Speaking', meaning: 'Replying to you', effect: 'Waveform ring pulses with the voice' },
+  searching: { color: '#00c2a8', label: 'Searching', meaning: 'Looking through memory, files or the system', effect: 'Wide radar sweep that lights up contacts' },
+  remembering: { color: '#f0a8ff', label: 'Remembering', meaning: 'Saving something to long-term memory', effect: 'Particles spiral into the core, which flashes as each lands' },
+  working: { color: '#ffb02e', label: 'Executing', meaning: 'Running a command or tool', effect: 'Rings step like a gear, arcs crackle from the core' },
+  speaking: { color: '#4ff5d2', label: 'Speaking', meaning: 'Replying to you', effect: 'Equalizer pulses round the core, sparks stream toward the chat' },
   focused: { color: '#d6ecff', label: 'Focused', meaning: 'Concentrating on a task', effect: 'Rings tighten, sweep narrows' },
-  happy: { color: '#ffd84a', label: 'Happy', meaning: 'Task finished, all good', effect: 'Warm glow, gentle bounce' },
+  happy: { color: '#ffd84a', label: 'Happy', meaning: 'Task finished, all good', effect: 'Warm glow, happy bounce' },
   excited: { color: '#ff5ea8', label: 'Excited', meaning: 'Something went really well', effect: 'Fast spin with sparks' },
-  success: { color: '#3dff95', label: 'Success', meaning: 'Request completed', effect: 'Shockwave ring burst' },
+  success: { color: '#3dff95', label: 'Success', meaning: 'Request completed', effect: 'Double shockwave and a burst of confetti' },
   confused: { color: '#9fb4c8', label: 'Confused', meaning: "Didn't catch that / unclear input", effect: 'Rings wobble back and forth' },
   error: { color: '#ff3d4f', label: 'Error', meaning: 'Request failed (details in the pop-up)', effect: 'Glitch shake and flicker' },
   dormant: { color: '#3553b8', label: 'Dormant', meaning: 'Idle for a while; click to wake', effect: 'Dimmed, very slow breathing' }
