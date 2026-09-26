@@ -171,14 +171,13 @@ impl MemoryStore for KbCoreStore {
     }
 
     async fn recall(&self, query: &str, limit: u32, min_score: f32) -> AppResult<Vec<SearchHit>> {
-        // kb-core filters server-side (and counts the recall as a use of the
-        // memory); a service that ignores `min_score` is filtered here too.
+        // kb-core filters server-side; a service that ignores `min_score` is
+        // filtered here too.
         let r = self
-            .send(self.req(reqwest::Method::POST, "/search").json(&json!({
-                "query": query, "limit": limit.clamp(1, 50), "min_score": min_score,
-                // The archive of the current conversation would only echo it.
-                "exclude_collections": ["conversations"],
-            })))
+            .send(
+                self.req(reqwest::Method::POST, "/search")
+                    .json(&recall_body(query, limit, min_score)),
+            )
             .await?;
         let mut hits = r.json::<SearchResp>().await?.results;
         hits.retain(|h| h.score >= min_score);
@@ -231,6 +230,19 @@ impl MemoryStore for KbCoreStore {
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default())
+    }
+
+    async fn list_hidden(&self, limit: u32) -> AppResult<Vec<Value>> {
+        let v = self
+            .ext(
+                self.req(reqwest::Method::GET, "/memories").query(&[
+                    ("hidden_only", "true".to_string()),
+                    ("limit", limit.clamp(1, 500).to_string()),
+                ]),
+                "memory history",
+            )
+            .await?;
+        Ok(hidden_only(v))
     }
 
     async fn delete_document(&self, id: &str) -> AppResult<()> {
@@ -372,9 +384,60 @@ impl MemoryStore for KbCoreStore {
     }
 }
 
+/// Request body for automatic recall.
+fn recall_body(query: &str, limit: u32, min_score: f32) -> Value {
+    json!({
+        "query": query, "limit": limit.clamp(1, 50), "min_score": min_score,
+        // The archive of the current conversation would only echo it.
+        "exclude_collections": ["conversations"],
+        // Auto-recall runs on every message, so counting its hits as "use"
+        // would feed activation back into itself: a memory recalled once
+        // ranks higher and gets recalled again (a filter bubble). Only
+        // deliberate use (the `search_memory` tool, restating, pinning)
+        // strengthens a memory.
+        "track": false,
+    })
+}
+
+/// Keep only memories that are actually hidden. A contract-only service
+/// ignores `hidden_only` and returns live memories; listing those as
+/// history with a Restore button would be misleading.
+fn hidden_only(v: Value) -> Vec<Value> {
+    v.get("memories")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter(|m| m.get("superseded_by").is_some_and(|s| !s.is_null()))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn auto_recall_does_not_count_as_use() {
+        let b = recall_body("what editor do I use", 99, 0.4);
+        assert_eq!(b["track"], false);
+        assert_eq!(b["limit"], 50);
+        assert_eq!(b["exclude_collections"], json!(["conversations"]));
+    }
+
+    #[test]
+    fn hidden_listing_ignores_live_memories() {
+        let v = json!({"memories": [
+            {"id": "m1", "content": "old", "superseded_by": "m2", "hidden_reason": "merged"},
+            {"id": "m3", "content": "live", "superseded_by": null},
+            {"id": "m4", "content": "contract-only service, no field"}
+        ]});
+        let h = hidden_only(v);
+        assert_eq!(h.len(), 1);
+        assert_eq!(h[0]["id"], "m1");
+        assert!(hidden_only(json!({})).is_empty());
+    }
 
     #[test]
     fn ids_are_path_safe() {
@@ -405,5 +468,11 @@ mod tests {
         assert_eq!(s.results[0].kind.as_deref(), Some("document"));
         assert_eq!(s.results[0].source.as_deref(), Some("notes/a.md"));
         assert_eq!(s.results[0].similarity, Some(0.81));
+        assert_eq!(s.results[0].origin, None);
+        let s: SearchResp = serde_json::from_str(
+            r#"{"results":[{"id":"m_1","content":"x","score":0.6,"kind":"memory","origin":"assistant"}]}"#,
+        )
+        .expect("search with origin");
+        assert_eq!(s.results[0].origin.as_deref(), Some("assistant"));
     }
 }

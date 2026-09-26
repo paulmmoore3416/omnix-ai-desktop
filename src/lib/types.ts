@@ -197,6 +197,8 @@ export interface KnowledgeData {
   embedError?: string | null;
   pendingEmbeddings?: number;
   superseded?: number;
+  /** Merged/superseded memories whose model ruling the user hasn't checked. */
+  needsReview?: number;
   links?: number;
   categories?: Record<string, number>;
   sources?: Record<string, number>;

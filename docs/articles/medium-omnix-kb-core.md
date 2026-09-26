@@ -211,7 +211,9 @@ alone will, sooner or later, silently throw away the fact that you changed your 
 So kb-core only auto-merges near-verbatim restatements (≥ 0.985). Anything in the ambiguous band is stored, linked to
 its neighbours, and handed to the local LLM in the background with a strict JSON schema: for each older memory, is it
 a **duplicate** (fold them together, keeping tags, importance and history) or **obsolete** (the new fact replaces it)?
-Obsolete memories aren't deleted — they're *superseded*: hidden from search, still visible, and restorable.
+Neither ruling deletes anything. Obsolete memories are *superseded* and duplicates are *merged*: either way the
+older memory is hidden from search, still visible, and restorable with one click. A small local model will
+sometimes get this wrong, so every one of its decisions has to be undoable.
 
 In testing it built exactly the chain you'd hope for:
 
@@ -226,8 +228,9 @@ In testing it built exactly the chain you'd hope for:
 ### Problem 5: Memories aren't all equal
 
 Human memory fades, strengthens with use, and holds on to what matters. kb-core gives every memory an **activation**
-between 0 and 1 from its importance, how recently it was used (a 45-day half-life), how often it has been recalled,
-and how often you've re-stated it. Vivid memories rank higher; stale trivia sinks. **Pin** a memory and it never
+between 0 and 1 from its importance, how recently it was used (a 45-day half-life), how often it has been deliberately
+looked up, and how often you've re-stated it. (Automatic recall doesn't count as a use; otherwise a memory recalled
+once would rank higher and get recalled again, a small filter bubble.) Vivid memories rank higher; stale trivia sinks. **Pin** a memory and it never
 fades. Saying the same thing twice doesn't create a duplicate — it *reinforces* the original.
 
 ### Problem 6: Memory should grow on its own — carefully
@@ -324,10 +327,10 @@ assistant or desktop agent, here's what I think sets it apart:
 
 ## The numbers
 
-- **Rust backend:** ~18,800 lines; 144 unit tests (policy bypass attempts, audit-chain tampering, stream parsers for
+- **Rust backend:** ~18,800 lines; 148 unit tests (policy bypass attempts, audit-chain tampering, stream parsers for
   every provider family, an MCP end-to-end test, recall-block escaping); `clippy -D warnings` clean.
-- **Frontend:** ~6,600 lines of Svelte 5/TypeScript; 27 Vitest tests; `svelte-check` 0 errors, 0 warnings.
-- **kb-core:** ~3,200 lines of Python, standard library plus optional numpy; 46 offline tests run in CI with and
+- **Frontend:** ~6,600 lines of Svelte 5/TypeScript; 29 Vitest tests; `svelte-check` 0 errors, 0 warnings.
+- **kb-core:** ~3,200 lines of Python, standard library plus optional numpy; 61 offline tests run in CI with and
   without numpy.
 - **Latency:** ~180 ms warm memory search (three query phrasings), ~67 ms first search after a restart; 5–10 s for
   background fact extraction on an 8B model (after the reply, so you never wait for it).

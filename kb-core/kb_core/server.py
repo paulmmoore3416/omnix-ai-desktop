@@ -4,7 +4,7 @@ Routes (see ``docs/kb-core-contract.md``; the first six are the contract
 OMNIX relies on, the rest are kb-core extensions):
 
     GET    /health                     liveness + counts
-    GET    /memories?limit&offset&category&include_superseded&order
+    GET    /memories?limit&offset&category&include_superseded&hidden_only&order
     POST   /memories                   save (consolidating)
     DELETE /memories/{id}
     POST   /search                     hybrid search
@@ -137,6 +137,7 @@ class Api:
                 include_superseded=self._flag(q, "include_superseded"),
                 order=q.get("order", ["recent"])[0],
                 collection=q.get("collection", [None])[0],
+                hidden_only=self._flag(q, "hidden_only"),
             )
         }
 
