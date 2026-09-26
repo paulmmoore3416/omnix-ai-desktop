@@ -76,7 +76,7 @@ Everything below describes what is implemented and tested in this repository.
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the module map and
 sequence diagrams, [`docs/TECHNICAL_REFERENCE.md`](docs/TECHNICAL_REFERENCE.md)
 for every command, setting and algorithm, and [`docs/SECURITY.md`](docs/SECURITY.md)
-for the threat model. The story behind it: [`docs/articles/medium-omnix-kb-core.md`](docs/articles/medium-omnix-kb-core.md).
+for the threat model.
 
 ## Engineering decisions worth discussing
 

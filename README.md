@@ -110,7 +110,7 @@ Open **Settings → AI Models** and pick a model from the list (OMNIX reads the 
 
 ## Usage
 
-New to OMNIX? Start with the **[User Guide](docs/USER_GUIDE.md)**. For a full capability breakdown (and what makes OMNIX different) see the **[Project Overview](docs/PROJECT_OVERVIEW.md)**; for every command, setting, event and algorithm see the **[Technical Reference](docs/TECHNICAL_REFERENCE.md)**. The memory engine is documented in **[kb-core/README.md](kb-core/README.md)**, and the story behind the project is in **[this article](docs/articles/medium-omnix-kb-core.md)**.
+New to OMNIX? Start with the **[User Guide](docs/USER_GUIDE.md)**. For a full capability breakdown (and what makes OMNIX different) see the **[Project Overview](docs/PROJECT_OVERVIEW.md)**; for every command, setting, event and algorithm see the **[Technical Reference](docs/TECHNICAL_REFERENCE.md)**. The memory engine is documented in **[kb-core/README.md](kb-core/README.md)**.
 
 ```text
 /execute git status                 # read-only: runs immediately

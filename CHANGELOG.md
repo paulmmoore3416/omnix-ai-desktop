@@ -100,7 +100,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   command, the chat event protocol, agent tools, memory integration, full settings reference with defaults, error
   kinds, audit-log schema, kb-core internals (schema, retrieval and scoring formulas, activation, consolidation,
   extraction, folder sync, HTTP guards), extension guide, test suites and measured performance.
-- `docs/articles/medium-omnix-kb-core.md`: a Medium article on OMNIX and kb-core, with publishing notes.
 - User Guide §11–13: the Knowledge view tab by tab, getting the most out of memory, and a privacy FAQ.
 - Project Overview: kb-core capabilities (§3.12) and "What makes OMNIX different" (§5).
 
