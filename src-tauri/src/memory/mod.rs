@@ -166,6 +166,15 @@ pub trait MemoryStore: Send + Sync {
         self.search(query, limit).await
     }
 
+    /// Search only one kind of result (`memory` or `document`). kb-core
+    /// filters server-side (`kinds` extension); other services are searched
+    /// normally and filtered here (a hit without a kind is a memory).
+    async fn search_kind(&self, query: &str, limit: u32, kind: &str) -> AppResult<Vec<SearchHit>> {
+        let mut hits = self.search(query, limit).await?;
+        hits.retain(|h| h.kind.as_deref().unwrap_or("memory") == kind);
+        Ok(hits)
+    }
+
     /// Search, keeping only hits scoring at least `min_score`.
     async fn recall(&self, query: &str, limit: u32, min_score: f32) -> AppResult<Vec<SearchHit>> {
         let mut hits = self.search(query, limit).await?;

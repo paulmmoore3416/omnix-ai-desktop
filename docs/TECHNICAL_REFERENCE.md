@@ -144,7 +144,7 @@ All commands return `AppResult<T>`; errors arrive as `{kind, message}` (§10). A
 | `chat_send` | `message`, `onEvent: Channel<UiEvent>` | `()` | Streams §6 events; resolves when the turn ends. Triggers background fact capture when enabled |
 | `chat_cancel` | — | `()` | Stops between stream events / before the next tool |
 | `chat_reset` | — | `()` | Clears history (refused while a turn runs) |
-| `process_command` | `command` | `string` | Slash commands: `/execute`, `/file read\|list\|write`, `/monitor` (`/search` 🚧) |
+| `process_command` | `command` | `string` | Slash commands: `/execute`, `/file read\|list\|write`, `/monitor`, `/remember <text> [#tag…]`, `/recall [query]`, `/search <query>` |
 
 ### Execution and audit
 

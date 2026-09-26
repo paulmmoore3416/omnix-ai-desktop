@@ -672,9 +672,8 @@ async fn execute_tool<R: Runtime>(
     }
 }
 
-/// The `remember` tool. Model-initiated memory writes skip the confirmation
-/// dialog (a memory is inert data, visible and deletable in the Knowledge
-/// view) but are tagged `source: assistant` and audited.
+/// The `remember` tool. Model-initiated memories are tagged
+/// `source: assistant` and audited (see [`save_memory_audited`]).
 async fn remember(state: &AppState, a: &Value, content: String) -> Result<String, String> {
     let content = content.trim().to_string();
     if content.chars().count() > 2_000 {
@@ -703,25 +702,50 @@ async fn remember(state: &AppState, a: &Value, content: String) -> Result<String
         .and_then(Value::as_u64)
         .unwrap_or(6)
         .clamp(1, 10) as u8;
-    let store = memory::require(state).await.map_err(|e| e.to_string())?;
-    let started = std::time::Instant::now();
-    let result = store
-        .save_detailed(NewMemory {
-            content: content.clone(),
+    let v = save_memory_audited(
+        state,
+        NewMemory {
+            content,
             tags,
             importance,
             category,
             source: Some("assistant".into()),
             collection: None,
-        })
-        .await;
+        },
+        Source::LlmTool,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(match v.get("status").and_then(Value::as_str) {
+        Some("reinforced") => "Already known; the existing memory was reinforced.".into(),
+        Some("updated") => "Updated the existing memory with the more detailed wording.".into(),
+        _ => format!(
+            "Saved to long-term memory (id {}).",
+            v.get("id").and_then(Value::as_str).unwrap_or("?")
+        ),
+    })
+}
+
+/// Save a memory and record it in the audit log as `memory_save`. Memory
+/// writes skip the confirmation dialog (a memory is inert data, visible and
+/// deletable in the Knowledge view) but are always audited, whether the
+/// assistant (`remember` tool) or the user (`/remember`) made them.
+pub async fn save_memory_audited(
+    state: &AppState,
+    memory: NewMemory,
+    source: Source,
+) -> AppResult<Value> {
+    let store = memory::require(state).await?;
+    let preview: String = memory.content.chars().take(200).collect();
+    let started = std::time::Instant::now();
+    let result = store.save_detailed(memory).await;
     let audit = state
         .audit
         .record(AuditRecord {
             id: uuid::Uuid::new_v4().to_string(),
-            source: Source::LlmTool,
+            source,
             action: "memory_save".into(),
-            command: content.chars().take(200).collect(),
+            command: preview,
             cwd: None,
             // Not a command; recorded as a (confirmation-free) data write.
             tier: RiskTier::Mutating,
@@ -739,15 +763,7 @@ async fn remember(state: &AppState, a: &Value, content: String) -> Result<String
     if let Err(e) = audit {
         tracing::warn!(error = %e, "could not audit memory_save");
     }
-    let v = result.map_err(|e| e.to_string())?;
-    Ok(match v.get("status").and_then(Value::as_str) {
-        Some("reinforced") => "Already known; the existing memory was reinforced.".into(),
-        Some("updated") => "Updated the existing memory with the more detailed wording.".into(),
-        _ => format!(
-            "Saved to long-term memory (id {}).",
-            v.get("id").and_then(Value::as_str).unwrap_or("?")
-        ),
-    })
+    result
 }
 
 /// Automatic recall for one user message: relevant memories, or none on

@@ -25,6 +25,7 @@
 | AI tool use: the model can list/read files and run commands, **through the same policy engine and approval dialogs** | ✅ (Ollama models with tool support; others answer without tools) |
 | `/execute` shell commands, risk-classified, with native approval for anything that changes the system | ✅ |
 | `/file read`, `/file list`, `/file write` (writes need approval, credential files are off-limits) | ✅ |
+| `/remember`, `/recall`, `/search`: save and look up memories, search memories + indexed documents | ✅ needs kb-core |
 | System Control: live CPU/memory/disk/network/sensors with history, **every GPU (NVIDIA + AMD)** with VRAM, temperature, power and per-process usage; agent metrics (tokens/s, time to first token, tool latency, recall) and model metrics (VRAM split, cold starts) | ✅ |
 | Services & Docker: list, start/stop/restart and logs for systemd services and containers (confirmed, audited) | ✅ |
 | Alerts, automations and scheduler: metric/service/container/model alerts with desktop notifications; triggers (alert, condition, process, file, idle) → notify / command / AI report; cron schedules; unattended commands need one signed native approval | ✅ |
@@ -119,6 +120,9 @@ New to OMNIX? Start with the **[User Guide](docs/USER_GUIDE.md)**. For a full ca
 /file list ~/projects
 /file write ~/notes/new.md Hello    # approval dialog
 /monitor
+/remember I prefer metric units #prefs
+/recall units                       # memories only; no query = most recent
+/search zfs backup                  # memories + indexed notes and documents
 ```
 
 Anything that doesn't start with `/` goes to the configured model. Responses stream in the **Conversation** view. The model may use tools (list/read files, run commands, search and save memories), and anything that would change your system still opens an approval dialog labelled *proposed by the AI assistant*. By default it gets one round of tool calls per message; **Settings → Security → autonomous mode** raises that (off by default).

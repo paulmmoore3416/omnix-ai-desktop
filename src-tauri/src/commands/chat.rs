@@ -5,9 +5,9 @@
 //! pipeline as the dedicated commands. There is no canned "fallback" answer:
 //! if the model is unreachable, the user gets an error.
 
-use super::not_implemented;
 use crate::ai::agent::{self, UiEvent};
 use crate::error::{AppError, AppResult};
+use crate::memory::{self, NewMemory, SearchHit};
 use crate::security::executor::{self, ExecRequest, ExecResult};
 use crate::security::files;
 use crate::security::policy::Source;
@@ -142,15 +142,21 @@ pub async fn process_command(
     if let Some(rest) = slash(input, "/file") {
         return file_op(&app, &state, rest).await;
     }
-    if slash(input, "/search").is_some() {
-        return not_implemented("/search");
+    if let Some(rest) = slash(input, "/remember") {
+        return remember(&state, rest).await;
+    }
+    if let Some(rest) = slash(input, "/recall") {
+        return recall(&state, rest).await;
+    }
+    if let Some(rest) = slash(input, "/search") {
+        return search(&state, rest).await;
     }
     if slash(input, "/monitor").is_some() {
         return monitor(&state);
     }
     let word = input.split_whitespace().next().unwrap_or(input).to_string();
     Err(AppError::InvalidInput(format!(
-        "unknown command {word}. Available: /execute, /file, /monitor (plain text goes to chat)"
+        "unknown command {word}. Available: /execute, /file, /monitor, /remember, /recall, /search (plain text goes to chat)"
     )))
 }
 
@@ -164,6 +170,161 @@ fn slash<'a>(input: &'a str, name: &str) -> Option<&'a str> {
     } else {
         None
     }
+}
+
+/// Results shown by `/recall` and `/search`.
+const LOOKUP_LIMIT: u32 = 8;
+/// Hits scoring below this are dropped. The kb-core contract calibrates
+/// `score` so that unrelated text scores ≤ 0.25; a deliberate lookup shows
+/// anything above that (auto-recall uses the stricter `recall_min_score`).
+const LOOKUP_MIN_SCORE: f32 = 0.25;
+/// Characters of each hit shown in the chat transcript.
+const LOOKUP_PREVIEW_CHARS: usize = 300;
+
+/// `/remember <text> [#tag …]`: save a user memory. Trailing `#tag` words
+/// become tags. Memories are inert data (no confirmation), but the write is
+/// audited like the assistant's `remember` tool.
+async fn remember(state: &AppState, rest: &str) -> AppResult<String> {
+    let (content, tags) = split_tags(rest);
+    if content.is_empty() {
+        return Err(AppError::InvalidInput(
+            "usage: /remember <what to remember> [#tag …]".into(),
+        ));
+    }
+    if content.chars().count() > 20_000 {
+        return Err(AppError::InvalidInput(
+            "a memory must be at most 20000 characters".into(),
+        ));
+    }
+    let v = agent::save_memory_audited(
+        state,
+        NewMemory {
+            content: content.clone(),
+            tags,
+            // Stated deliberately by the user, so ranked above the
+            // assistant's default of 6.
+            importance: 7,
+            category: "general".into(),
+            source: Some("user".into()),
+            collection: None,
+        },
+        Source::User,
+    )
+    .await?;
+    let id = v.get("id").and_then(|i| i.as_str()).unwrap_or("?");
+    Ok(match v.get("status").and_then(|s| s.as_str()) {
+        Some("reinforced") => {
+            format!("🧠 Already known; the existing memory was reinforced (id `{id}`).")
+        }
+        Some("updated") => format!("🧠 Updated an existing memory with this wording (id `{id}`)."),
+        _ => format!("💾 Remembered (id `{id}`). Manage it in the Knowledge view."),
+    })
+}
+
+/// `/recall [query]`: memories matching the query, or the most recent
+/// memories when no query is given. Document chunks are left out (`/search`).
+async fn recall(state: &AppState, query: &str) -> AppResult<String> {
+    let store = memory::require(state).await?;
+    if query.is_empty() {
+        let recent = store.list(LOOKUP_LIMIT).await?;
+        if recent.is_empty() {
+            return Ok("No memories yet. Save one with `/remember <fact>`.".into());
+        }
+        let mut out = String::from("Most recent memories:\n");
+        for m in &recent {
+            let when = m.created_at.as_deref().and_then(|t| t.get(..10));
+            out.push_str(&format!(
+                "- {}{} `{}`\n",
+                preview(&m.content),
+                when.map(|d| format!(" (saved {d})")).unwrap_or_default(),
+                m.id
+            ));
+        }
+        return Ok(out);
+    }
+    let hits = relevant(store.search_kind(query, LOOKUP_LIMIT, "memory").await?);
+    if hits.is_empty() {
+        return Ok(format!("No memories match “{query}”."));
+    }
+    Ok(format!(
+        "Memories matching “{query}”:\n{}",
+        format_lookup(&hits)
+    ))
+}
+
+/// `/search <query>`: semantic + keyword search over everything in the
+/// memory service: memories and indexed documents (notes, watched folders).
+async fn search(state: &AppState, query: &str) -> AppResult<String> {
+    if query.is_empty() {
+        return Err(AppError::InvalidInput("usage: /search <query>".into()));
+    }
+    let store = memory::require(state).await?;
+    let hits = relevant(store.search(query, LOOKUP_LIMIT).await?);
+    if hits.is_empty() {
+        return Ok(format!(
+            "Nothing in memory or indexed documents matches “{query}”."
+        ));
+    }
+    Ok(format!("Results for “{query}”:\n{}", format_lookup(&hits)))
+}
+
+/// Split trailing `#tag` words off `/remember` input.
+fn split_tags(input: &str) -> (String, Vec<String>) {
+    let mut words: Vec<&str> = input.split_whitespace().collect();
+    let mut tags = Vec::new();
+    while let Some(w) = words.last() {
+        match w.strip_prefix('#') {
+            Some(t) if !t.is_empty() && t.len() <= 64 && !t.contains('#') => {
+                tags.push(t.to_lowercase());
+                words.pop();
+            }
+            _ => break,
+        }
+    }
+    tags.reverse();
+    tags.dedup();
+    tags.truncate(10);
+    (words.join(" "), tags)
+}
+
+fn relevant(mut hits: Vec<SearchHit>) -> Vec<SearchHit> {
+    hits.retain(|h| h.score >= LOOKUP_MIN_SCORE);
+    hits
+}
+
+/// One Markdown list line per hit. Stored text is untrusted data: it is
+/// flattened to one line and clipped, and the transcript renders it through
+/// the sanitizing Markdown renderer like any other reply.
+fn format_lookup(hits: &[SearchHit]) -> String {
+    let mut out = String::new();
+    for h in hits {
+        let label = if h.kind.as_deref() == Some("document") {
+            format!("📄 {}", h.source.as_deref().unwrap_or("document"))
+        } else {
+            "🧠 memory".to_string()
+        };
+        let when = h
+            .created_at
+            .as_deref()
+            .and_then(|t| t.get(..10))
+            .map(|d| format!(", {d}"))
+            .unwrap_or_default();
+        out.push_str(&format!(
+            "- **{label}**{when} · relevance {:.2}: {}\n",
+            h.score,
+            preview(&h.content)
+        ));
+    }
+    out
+}
+
+fn preview(text: &str) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut p: String = flat.chars().take(LOOKUP_PREVIEW_CHARS).collect();
+    if flat.chars().count() > LOOKUP_PREVIEW_CHARS {
+        p.push('…');
+    }
+    p
 }
 
 /// `/file read <path>` | `/file list <path>` | `/file write <path> <content>`.
@@ -256,6 +417,28 @@ mod tests {
         assert_eq!(slash("/execute", "/execute"), Some(""));
         assert_eq!(slash("/executes ls", "/execute"), None);
         assert_eq!(slash("hello", "/execute"), None);
+    }
+
+    #[test]
+    fn remember_splits_trailing_tags() {
+        assert_eq!(
+            split_tags("I prefer tea #Drinks #prefs"),
+            ("I prefer tea".into(), vec!["drinks".into(), "prefs".into()])
+        );
+        // Only trailing tags are split off; a # inside the text stays.
+        assert_eq!(
+            split_tags("issue #42 is fixed"),
+            ("issue #42 is fixed".into(), vec![])
+        );
+        assert_eq!(split_tags("#only"), (String::new(), vec!["only".into()]));
+        assert_eq!(split_tags("  "), (String::new(), vec![]));
+    }
+
+    #[test]
+    fn lookup_preview_is_one_clipped_line() {
+        assert_eq!(preview("a\n\n b\tc"), "a b c");
+        let long = "x".repeat(LOOKUP_PREVIEW_CHARS + 5);
+        assert_eq!(preview(&long).chars().count(), LOOKUP_PREVIEW_CHARS + 1);
     }
 
     #[test]

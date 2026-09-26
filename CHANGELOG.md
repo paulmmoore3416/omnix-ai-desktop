@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Chat commands `/remember <text> [#tag …]` (saves a user memory, audited as `memory_save`), `/recall [query]`
+  (memories only; no query lists the most recent) and `/search <query>` (memories plus indexed documents). They use
+  kb-core; hits below relevance 0.25 are dropped. `/search` no longer returns `not_implemented`.
+
 ## [1.1.0] - 2026-09-26
 
 ### Setup

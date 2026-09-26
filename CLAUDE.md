@@ -141,7 +141,7 @@ justifies it. Before adding or upgrading a crate or npm package, check the curre
 
 ## 5. Known limitations (don't "fix" these by faking them)
 
-- The `/search` slash command: **planned**. Memory encryption at rest is opt-in (`setup-memory.sh --encrypt`) and
+- Memory encryption at rest is opt-in (`setup-memory.sh --encrypt`) and
   needs an unlocked keyring for kb-core to start.
 - Privileged (sudo) commands never run unattended by design; approve them interactively.
 - AIORC backend: scaffold only (`--features aiorc`), waiting on its `.proto`.

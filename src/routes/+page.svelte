@@ -101,7 +101,10 @@
       '/file read - Read a text file',
       '/file list - List a directory',
       '/file write - Write a file (needs your approval)',
-      '/monitor - System status and top processes'
+      '/monitor - System status and top processes',
+      '/remember - Save a fact to long-term memory (#tags at the end)',
+      '/recall - Look up memories (no query: most recent)',
+      '/search - Search memories and indexed documents'
     ];
     
     commandSuggestions = allCommands.filter(cmd => 
@@ -700,9 +703,9 @@
             { cmd: '/execute', desc: 'Run a shell command. Commands are risk-classified; anything that changes your system opens a native approval dialog, and destructive patterns are always blocked.', icon: '⚡', planned: false },
             { cmd: '/file', desc: 'read <path>, list <path>, or write <path> <content> (writes need approval; credential files are off-limits)', icon: '📁', planned: false },
             { cmd: '/monitor', desc: 'System resources and top processes', icon: '📊', planned: false },
-            { cmd: '/search', desc: 'Search files and content', icon: '🔍', planned: true },
-            { cmd: '/remember', desc: 'Store information in long-term memory', icon: '💾', planned: true },
-            { cmd: '/recall', desc: 'Retrieve stored memories', icon: '🧠', planned: true }
+            { cmd: '/remember', desc: 'Save a fact to long-term memory. Trailing #words become tags: /remember I prefer metric units #prefs', icon: '💾', planned: false },
+            { cmd: '/recall', desc: 'Look up your memories by meaning: /recall units. With no query, lists the most recent ones.', icon: '🧠', planned: false },
+            { cmd: '/search', desc: 'Search everything in memory: memories plus indexed notes, documents and watched folders', icon: '🔍', planned: false }
           ] as command}
             <div class="glass-panel p-4 transition-all {command.planned ? 'opacity-50' : 'hover:bg-white/10'}">
               <div class="flex items-center gap-2 mb-2">

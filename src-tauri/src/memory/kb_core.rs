@@ -170,6 +170,18 @@ impl MemoryStore for KbCoreStore {
         Ok(r.json::<SearchResp>().await?.results)
     }
 
+    async fn search_kind(&self, query: &str, limit: u32, kind: &str) -> AppResult<Vec<SearchHit>> {
+        let r = self
+            .send(self.req(reqwest::Method::POST, "/search").json(&json!({
+                "query": query, "limit": limit.clamp(1, 50), "kinds": [kind]
+            })))
+            .await?;
+        let mut hits = r.json::<SearchResp>().await?.results;
+        // A service that ignores `kinds` is filtered here too.
+        hits.retain(|h| h.kind.as_deref().unwrap_or("memory") == kind);
+        Ok(hits)
+    }
+
     async fn recall(&self, query: &str, limit: u32, min_score: f32) -> AppResult<Vec<SearchHit>> {
         // kb-core filters server-side; a service that ignores `min_score` is
         // filtered here too.

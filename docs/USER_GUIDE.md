@@ -194,9 +194,16 @@ Start a message with `/` to run a command directly. Type `/` and suggestions pop
 | `/file read` | Shows a text file | `/file read ~/notes/todo.md` |
 | `/file list` | Lists a folder | `/file list ~/Documents` |
 | `/file write` | Creates or replaces a file (asks first) | `/file write ~/notes/idea.md Buy milk` |
+| `/remember` | Saves a fact to long-term memory; `#words` at the end become tags | `/remember I prefer metric units #prefs` |
+| `/recall` | Finds your memories by meaning; on its own, lists the most recent | `/recall units` |
+| `/search` | Searches everything OMNIX knows: memories plus indexed notes, documents and watched folders | `/search zfs backup` |
 
 The Home screen buttons are shortcuts: **📊 System Status** runs `/monitor`, **📁 List Files** lists the current folder,
 and **❓ Help** asks OMNIX what it can do.
+
+`/remember`, `/recall` and `/search` need the memory service (kb-core, installed by setup). Results show how
+relevant each one is; weak matches are left out. Everything you save is listed, editable and deletable in the
+**Knowledge** view.
 
 ---
 
