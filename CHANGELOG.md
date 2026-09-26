@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Google: Gmail, Drive and developer docs** (Settings → Google, off by default, unavailable in local-only mode).
+  Gmail: search, read, and create drafts (OMNIX never sends mail). Drive: search, read Docs/Sheets/Slides and text
+  files, and upload files OMNIX made, optionally converted to Google Sheets or Docs. Developer Knowledge API: search
+  and read Google's official Android, Firebase, Cloud and web documentation. Sign-in uses OAuth with PKCE through
+  your own Google Cloud "Desktop app" client and a one-shot loopback redirect. The client secret and API key are
+  write-only keychain entries, and the refresh token is internal (IPC can't read or set it). Scopes are least
+  privilege, drafts and uploads are confirmed natively, and every call is audited.
 - **Spreadsheets, web pages and files from chat.** Two new agent tools: `write_file` (HTML pages, Markdown, CSV,
   code) and `create_workbook`, which builds a real Excel `.xlsx` with live formulas (including XLOOKUP, FILTER and
   LET), number formats, Excel tables with total rows, frozen headers, drop-down and number validation, conditional

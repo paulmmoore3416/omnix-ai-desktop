@@ -98,6 +98,21 @@ export interface Settings {
     alerts_by_severity: boolean;
     service_down_minutes: number;
   };
+  google: {
+    enabled: boolean;
+    client_id: string;
+    gmail: boolean;
+    drive: boolean;
+    dev_docs: boolean;
+  };
+}
+
+/** Mirrors `google::GoogleStatus`. */
+export interface GoogleStatus {
+  connected: boolean;
+  has_client_secret: boolean;
+  has_dev_key: boolean;
+  local_only: boolean;
 }
 
 /** Mirrors `phone::PhoneChannel`. */
@@ -131,6 +146,8 @@ export type SecretProvider =
   | 'notion'
   | 'kb_core'
   | 'twilio'
+  | 'google_oauth_client'
+  | 'google_devknowledge'
   | `mcp.${string}.${string}`;
 
 /** Mirrors `security::executor::ExecResult`. */

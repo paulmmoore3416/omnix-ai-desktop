@@ -44,6 +44,8 @@ pub struct Settings {
     pub performance: PerformanceSettings,
     /// Texts and calls to the owner's phone (Twilio, outbound only).
     pub phone: PhoneSettings,
+    /// Gmail, Google Drive and Google developer docs (off by default).
+    pub google: GoogleSettings,
 }
 
 impl Default for Settings {
@@ -60,8 +62,30 @@ impl Default for Settings {
             security: SecuritySettings::default(),
             performance: PerformanceSettings::default(),
             phone: PhoneSettings::default(),
+            google: GoogleSettings::default(),
         }
     }
+}
+
+/// Google services (see `crate::google`). Off by default and unavailable
+/// while `security.local_only` is on. The OAuth client ID is an identifier,
+/// not a secret; the client secret, the Developer Knowledge key and the
+/// refresh token live in the keychain.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GoogleSettings {
+    /// Master switch. Turning it on is a confirmed change: mail, file
+    /// contents and search queries go to Google when the tools are used.
+    pub enabled: bool,
+    /// OAuth client ID of a "Desktop app" client in the user's own Google
+    /// Cloud project (`….apps.googleusercontent.com`).
+    pub client_id: String,
+    /// Gmail: search, read, create drafts (never send).
+    pub gmail: bool,
+    /// Drive: search, read, upload files OMNIX made.
+    pub drive: bool,
+    /// Developer Knowledge API: search Google's developer documentation.
+    pub dev_docs: bool,
 }
 
 /// Outbound texts and calls to the owner's phone through Twilio. Off by
@@ -541,6 +565,18 @@ impl Settings {
         {
             return bad("phone wait times: approvals ≤ 600 s, jobs and services ≤ 1440 min");
         }
+        let cid = self.google.client_id.trim();
+        if !cid.is_empty()
+            && (cid.len() > 200
+                || !cid.ends_with(".apps.googleusercontent.com")
+                || !cid
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.'))
+        {
+            return bad(
+                "google.client_id must be an OAuth client ID ending in .apps.googleusercontent.com",
+            );
+        }
         if !(0.0..=1.0).contains(&self.memory.recall_min_score) {
             return bad("memory.recall_min_score must be between 0 and 1");
         }
@@ -782,6 +818,33 @@ impl Settings {
             out.push(format!(
                 "Send texts and calls to {} through Twilio (message text leaves this computer, even in local-only mode)",
                 new.phone.to_number
+            ));
+        }
+        // Google: mail, file contents and queries leave the machine, and a
+        // new client ID changes which Google project receives the consent.
+        let g = (&self.google, &new.google);
+        if g.1.enabled
+            && (!g.0.enabled
+                || (g.1.gmail && !g.0.gmail)
+                || (g.1.drive && !g.0.drive)
+                || (g.1.dev_docs && !g.0.dev_docs)
+                || g.0.client_id != g.1.client_id)
+        {
+            let services: Vec<&str> = [
+                (g.1.gmail, "Gmail"),
+                (g.1.drive, "Google Drive"),
+                (g.1.dev_docs, "Google developer docs"),
+            ]
+            .into_iter()
+            .filter_map(|(on, n)| on.then_some(n))
+            .collect();
+            out.push(format!(
+                "Let the assistant use {} (mail, file contents and searches are sent to Google; needs local-only mode off)",
+                if services.is_empty() {
+                    "Google services".to_string()
+                } else {
+                    services.join(", ")
+                }
             ));
         }
         // Retention deletes data: turning it on or shortening it is confirmed.
@@ -1112,6 +1175,35 @@ mod tests {
         moved.phone.to_number = "+13145550199".into();
         assert_eq!(new.security_changes(&moved).len(), 1);
         assert!(new.security_changes(&new.clone()).is_empty());
+    }
+
+    #[test]
+    fn google_settings_are_validated_and_confirmed() {
+        let old = Settings::default();
+        assert!(!old.google.enabled, "Google must default off");
+        let mut new = old.clone();
+        new.google.client_id = "evil.example.com".into();
+        assert!(new.validate().is_err());
+        new.google.client_id = "123-abc.apps.googleusercontent.com".into();
+        assert!(new.validate().is_ok());
+        assert!(
+            old.security_changes(&new).is_empty(),
+            "a client ID alone sends nothing"
+        );
+        new.google.enabled = true;
+        new.google.gmail = true;
+        assert_eq!(old.security_changes(&new).len(), 1);
+        // Adding a service or changing the client is confirmed again.
+        let mut more = new.clone();
+        more.google.drive = true;
+        assert_eq!(new.security_changes(&more).len(), 1);
+        let mut other = new.clone();
+        other.google.client_id = "999-x.apps.googleusercontent.com".into();
+        assert_eq!(new.security_changes(&other).len(), 1);
+        // Turning things off is not.
+        let mut less = new.clone();
+        less.google.gmail = false;
+        assert!(new.security_changes(&less).is_empty());
     }
 
     #[test]

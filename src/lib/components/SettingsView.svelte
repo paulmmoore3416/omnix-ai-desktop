@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy, untrack } from 'svelte';
   import { call, errorMessage } from '$lib/api';
-  import type { Settings, VerifyReport } from '$lib/types';
+  import type { GoogleStatus, Settings, VerifyReport } from '$lib/types';
   import { startRecording, transcribe } from '$lib/voice';
   import SecretField from './SecretField.svelte';
   import McpServers from './McpServers.svelte';
@@ -26,6 +26,7 @@
     { id: 'voice', label: 'Voice', icon: '🎤' },
     { id: 'memory', label: 'Memory', icon: '🧠' },
     { id: 'phone', label: 'Phone', icon: '📱' },
+    { id: 'google', label: 'Google', icon: '🔗' },
     { id: 'security', label: 'Security', icon: '🔒' },
     { id: 'performance', label: 'Performance', icon: '⚡' }
   ];
@@ -131,6 +132,46 @@
     testingConnection = `phone-${channel}`;
     try {
       flash('success', await call<string>('phone_test', { channel }));
+    } catch (e) {
+      flash('error', errorMessage(e), 8000);
+    } finally {
+      testingConnection = null;
+    }
+  }
+
+  let google = $state<GoogleStatus | null>(null);
+
+  async function refreshGoogle() {
+    try {
+      google = await call<GoogleStatus>('google_status');
+    } catch (e) {
+      flash('error', errorMessage(e), 8000);
+    }
+  }
+
+  $effect(() => {
+    if (activeTab === 'google') untrack(refreshGoogle);
+  });
+
+  // Opens Google's consent page in the browser; uses the *saved* settings.
+  async function connectGoogle() {
+    testingConnection = 'google';
+    flash('success', 'Finish signing in in your browser (up to 5 minutes)…', 300000);
+    try {
+      flash('success', await call<string>('google_connect'));
+    } catch (e) {
+      flash('error', errorMessage(e), 10000);
+    } finally {
+      testingConnection = null;
+      await refreshGoogle();
+    }
+  }
+
+  async function disconnectGoogle() {
+    testingConnection = 'google';
+    try {
+      google = await call<GoogleStatus>('google_disconnect');
+      flash('success', 'Disconnected from Google.');
     } catch (e) {
       flash('error', errorMessage(e), 8000);
     } finally {
@@ -642,6 +683,66 @@
                   <p class="text-xs text-gray-400 mt-1">Text me when Ollama or the memory service has been unreachable this long, and when it's back (0 = off).</p>
                 </div>
               </div>
+            </div>
+          </div>
+
+        {:else if activeTab === 'google'}
+          <div class="space-y-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-xl font-bold text-cosmic-cyan">Google: Gmail, Drive and developer docs</h3>
+              {#if google?.connected}
+                <button onclick={disconnectGoogle} disabled={testingConnection !== null} class="glass-panel px-4 py-2 hover:bg-white/10 transition-all text-sm disabled:opacity-50">🔌 Disconnect</button>
+              {:else}
+                <button onclick={connectGoogle} disabled={testingConnection !== null || !settings.google.enabled || !(settings.google.gmail || settings.google.drive) || !google?.has_client_secret || !!google?.local_only} class="glass-panel px-4 py-2 hover:bg-white/10 transition-all text-sm disabled:opacity-50">
+                  {testingConnection === 'google' ? '⏳ Waiting for browser…' : '🔑 Connect Google account'}
+                </button>
+              {/if}
+            </div>
+            <div class="glass-panel p-4 bg-white/5 text-sm text-gray-300 space-y-2">
+              <p>Let OMNIX search and read your Gmail (and save drafts; it never sends), search, read and upload to Google Drive, and look things up in Google's official developer documentation.</p>
+              <p class="text-yellow-300">These are cloud services: the mail, files and searches involved go to Google, and to your AI model. They only work with local-only mode <strong>off</strong>. Don't use them for patient information unless your organization's policy and agreements with Google allow it. Enabling them asks you to confirm.</p>
+              <p>
+                Status:
+                {#if !google}checking…
+                {:else if google.local_only}<span class="text-yellow-300">blocked by local-only mode (Settings → Security)</span>
+                {:else if google.connected}<span class="text-green-400">account connected</span>
+                {:else}not connected{/if}
+              </p>
+            </div>
+            <div class="space-y-4">
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Use Google services</span>
+                <input type="checkbox" bind:checked={settings.google.enabled} class="w-5 h-5" />
+              </label>
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Gmail <span class="block text-xs text-gray-400 font-normal">Search, read, create drafts (read-only + compose access)</span></span>
+                <input type="checkbox" bind:checked={settings.google.gmail} class="w-5 h-5" />
+              </label>
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Google Drive <span class="block text-xs text-gray-400 font-normal">Search and read files; upload files OMNIX made (can only change files it uploaded)</span></span>
+                <input type="checkbox" bind:checked={settings.google.drive} class="w-5 h-5" />
+              </label>
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Developer docs <span class="block text-xs text-gray-400 font-normal">Search Google's Android, Firebase, Cloud and web documentation (Developer Knowledge API; only your search text is sent)</span></span>
+                <input type="checkbox" bind:checked={settings.google.dev_docs} class="w-5 h-5" />
+              </label>
+              <div>
+                <label for="google-client" class="block text-sm font-medium mb-2">OAuth client ID (for Gmail and Drive)</label>
+                <input id="google-client" type="text" bind:value={settings.google.client_id} placeholder="1234-abc.apps.googleusercontent.com" class="w-full font-mono bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+              </div>
+              <SecretField provider="google_oauth_client" label="OAuth client secret (stored in the OS keychain)" placeholder="GOCSPX-…" has={google?.has_client_secret} onchange={() => refreshGoogle()} />
+              <SecretField provider="google_devknowledge" label="Developer Knowledge API key (stored in the OS keychain)" placeholder="AIza…" has={google?.has_dev_key} onchange={() => refreshGoogle()} />
+              <details class="glass-panel p-4 bg-white/5 text-sm text-gray-300">
+                <summary class="cursor-pointer font-medium">One-time setup in Google Cloud Console</summary>
+                <ol class="list-decimal ml-5 mt-2 space-y-1">
+                  <li>Create or pick a project, then enable the <strong>Gmail API</strong>, <strong>Google Drive API</strong> and <strong>Developer Knowledge API</strong>.</li>
+                  <li>OAuth consent screen: <em>External</em>, add yourself as a test user.</li>
+                  <li>Credentials → Create credentials → <strong>OAuth client ID</strong> → type <strong>Desktop app</strong>. Paste its client ID above and its secret into the keychain field.</li>
+                  <li>Credentials → Create credentials → <strong>API key</strong>, restricted to the Developer Knowledge API. Paste it into the key field.</li>
+                  <li>Tick the services, turn on <em>Use Google services</em>, <strong>Save</strong>, then <strong>Connect Google account</strong>.</li>
+                </ol>
+                <p class="mt-2">Plain API keys can't read your mail or files; Gmail and Drive always need the Connect step.</p>
+              </details>
             </div>
           </div>
 

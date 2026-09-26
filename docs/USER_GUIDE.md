@@ -326,6 +326,7 @@ admin commands, adding a new server) asks you to confirm in a pop-up.
 | **Voice** | Speech-to-text server, Whisper model, language, Piper read-aloud, and **Test microphone** |
 | **Memory** | The memory service URL, **Recall automatically** (on), how many entries to recall and how relevant they must be, **Learn from conversations** (off; asks you to confirm when you turn it on), **Archive conversations** (on: a searchable copy of your chats), **Summarize conversations** (off: when you clear a chat, save a short summary as a memory), **Semantic search** (on; off = match words only), **Memory limit** (1000; when full, new memories are refused, nothing is deleted for you) and **Keep archived conversations** (0 = forever; older chat transcripts are deleted daily) |
 | **Phone** | Let OMNIX **text or call your phone** through Twilio: your number, the Twilio number and account, the auth token (kept in the keychain) and a per-hour limit. **Test text** and **Test call** check it. Off by default; turning it on asks you to confirm |
+| **Google** | Connect **Gmail** (search, read, save drafts; OMNIX never sends mail), **Google Drive** (search, read, upload what OMNIX made) and **Google developer docs**. Needs your own Google Cloud OAuth client (the tab lists the steps) and local-only mode off. Off by default; turning it on asks you to confirm |
 | **Security** | Local-only mode, admin commands, autonomous mode, blocked commands, audit-log verification |
 | **Performance** | Performance-related options |
 

@@ -14,6 +14,7 @@ pub mod ai;
 pub mod commands;
 pub mod desktop;
 pub mod error;
+pub mod google;
 pub mod mcp;
 pub mod memory;
 pub mod observability;
@@ -158,6 +159,9 @@ pub fn run() {
             commands::chat::chat_reset,
             // Phone
             commands::phone::phone_test,
+            commands::google::google_status,
+            commands::google::google_connect,
+            commands::google::google_disconnect,
             // Execution (the only shell entry point) and audit
             commands::exec::request_execution,
             commands::exec::verify_audit_log,

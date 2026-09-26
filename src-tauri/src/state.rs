@@ -55,6 +55,8 @@ pub struct AppState {
     pub phone_limit: crate::phone::RateLimiter,
     /// Ollama / kb-core outage tracking (`phone.service_down_minutes`).
     pub phone_watch: crate::phone::DownWatch,
+    /// Google access token (in memory) and sign-in lock.
+    pub google: crate::google::GoogleSession,
 }
 
 impl AppState {
@@ -96,6 +98,7 @@ impl AppState {
             conversation_doc: Mutex::new(None),
             phone_limit: crate::phone::RateLimiter::default(),
             phone_watch: crate::phone::DownWatch::default(),
+            google: crate::google::GoogleSession::default(),
         })
     }
 

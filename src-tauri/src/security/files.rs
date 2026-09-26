@@ -74,6 +74,31 @@ pub async fn read_file<R: Runtime>(
     Ok(content)
 }
 
+/// Read a file's bytes for a caller that confirms and audits the whole
+/// operation itself (e.g. a Drive upload, whose dialog names this path).
+/// Applies the credential-path policy (a refusal is audited) and `max_bytes`.
+pub async fn read_bytes_checked(
+    state: &AppState,
+    path: &str,
+    max_bytes: u64,
+) -> AppResult<(PathBuf, Vec<u8>)> {
+    let rec = base_record("read_for_upload", path, Source::LlmTool);
+    let p = match resolve_existing(path, state.home.as_deref()).and_then(|p| guard_read(state, p)) {
+        Ok(p) => p,
+        Err(e) => return deny(state, rec, e).await,
+    };
+    let meta = tokio::fs::metadata(&p).await?;
+    if !meta.is_file() || meta.len() > max_bytes {
+        return Err(AppError::InvalidInput(format!(
+            "{} is not a file of at most {} MiB",
+            p.display(),
+            max_bytes / 1024 / 1024
+        )));
+    }
+    let data = tokio::fs::read(&p).await?;
+    Ok((p, data))
+}
+
 /// List a directory (names only, sorted, directories suffixed with `/`).
 pub async fn list_directory<R: Runtime>(
     app: &AppHandle<R>,

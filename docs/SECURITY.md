@@ -204,6 +204,10 @@ Default **on**. Enforced in Rust (`ai::endpoint`):
   "approval waiting" heads-up carries no request details (the dialog itself
   stays on the desk screen and still defaults to deny).
 
+* **Google services are not an exception** (`google.rs`): Gmail, Drive and
+  Developer Knowledge requests pass `ensure_endpoint_allowed`, so they fail
+  while local-only mode is on, and the agent is not offered their tools.
+
 **Healthcare networks:** keep `local_only` on. It prevents prompts, which may
 contain PHI, from being sent to third-party services. Residual risk: DNS
 rebinding between the check and the request; prefer IP literals or
@@ -328,6 +332,38 @@ two memory tools (`search_memory`, `remember`).
   in `read_only_tools`; timed out after `command_timeout_secs`; audited
   (`mcp_call`, arguments redacted); results wrapped as untrusted data.
 
+## 10a. Agent file tools and Google services
+
+* **`write_file` / `create_workbook`** write through `security::files::write_bytes`:
+  the credential-path and protected-path policy (settings, ops rules, audit
+  directory), symlink-resolving path checks, a 5 MiB cap, a native dialog
+  (default deny) and an audit entry. A workbook is built in memory from a
+  bounded JSON spec (≤ 50 sheets, ≤ 200,000 cells); its dialog summarises the
+  parsed sheets instead of showing bytes.
+* **Google** (Settings → Google, off by default; enabling or widening it is a
+  natively confirmed change):
+  * Gmail and Drive use OAuth 2.0 for installed apps (RFC 8252) with PKCE
+    (S256) and a random `state`. The redirect listener binds `127.0.0.1` on an
+    ephemeral port only for the sign-in the user started, ignores requests
+    without the matching `state`, serves one static page, and closes on
+    success or after 5 minutes. It is the only listener OMNIX opens, and it
+    is never reachable from the network.
+  * Least-privilege scopes: `gmail.readonly` + `gmail.compose` (drafts; there
+    is no send tool) and `drive.readonly` + `drive.file`.
+  * The client secret (`google_oauth_client`) and the Developer Knowledge key
+    (`google_devknowledge`) are write-only keychain entries. The refresh token
+    is `internal.google_refresh`, which IPC cannot read or set, so a
+    compromised webview cannot plant a token for an attacker's account.
+    Access tokens stay in memory. The API key is sent in the `X-Goog-Api-Key`
+    header, never in a URL.
+  * API hosts are constants. Ids and document names are validated (no path
+    traversal, query or fragment injection); draft headers reject line breaks.
+  * Mail and documents reach the model as tool results wrapped as untrusted
+    data. Creating a draft and uploading a file are natively confirmed; reads
+    are audited (`gmail_search`, `gmail_read`, `drive_search`, `drive_read`,
+    `dev_docs_search`, `dev_docs_get`) and confirmed when
+    `require_confirmation` is on. Disconnect revokes the token at Google.
+
 ## 11. Voice
 
 * Push-to-talk only (mic button or Ctrl+Space); no always-on listening.
@@ -444,6 +480,11 @@ the local kb-core `conversations` collection, which automatic recall excludes.
 * With the phone enabled, alert summaries, rule messages and texted AI reports
   pass through Twilio and the mobile network. Don't text reports that may
   contain PHI.
+* With Google connected, email is a prompt-injection channel: anyone can send
+  you a message that tries to steer the model. Tool results are marked
+  untrusted, and the only Google writes (drafts, uploads) need your approval,
+  but read the dialogs. Mail and files the model reads also go to your AI
+  provider, so use a local model for anything sensitive.
 * Classification is conservative but not a sandbox: an approved Mutating
   command runs with your user's full permissions. Read the dialog. The same
   applies to an unattended command you approved: it runs with your

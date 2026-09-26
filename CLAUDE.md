@@ -60,6 +60,8 @@ via Vulkan) and an NVIDIA GTX 1060 6 GB (runs Speaches via CUDA), Ubuntu/Debian.
 | Security | `src-tauri/src/security/`: `policy.rs` (risk tiers), `confirm.rs` (native dialogs), `executor.rs`, `elevation.rs`, `files.rs`, `audit.rs` (hash chain), `secrets.rs` (keychain) |
 | AI | `src-tauri/src/ai/`: `provider.rs` (trait), `ollama.rs`, `anthropic.rs`, `openai_compat.rs`, `agent.rs` (tool loop), `endpoint.rs` (local-only guard), `aiorc.rs` (scaffold) |
 | Phone | `src-tauri/src/phone.rs` (Twilio texts/calls, outbound only; token in keychain as `twilio`) |
+| Google | `src-tauri/src/google.rs` (Gmail/Drive via OAuth + PKCE loopback, Developer Knowledge API; off by default, blocked by `local_only`; refresh token `internal.google_refresh`) |
+| Deliverables | `src-tauri/src/workbook.rs` (`.xlsx` from a JSON spec for the `create_workbook` tool); writes go through `security/files.rs::write_bytes` |
 | Integrations | `mcp.rs`, `voice.rs` (Speaches STT client, Piper TTS), `memory/kb_core.rs`, `observability.rs` (Loki), `desktop.rs` (tray, shortcuts), `ai/ollama_admin.rs` (model manager), `ai/metrics.rs` (agent/model metrics) |
 | Host control | `src-tauri/src/system/`: `metrics.rs`, `gpu.rs` (NVIDIA + AMD), `history.rs`, `probe.rs` (fixed-argv reads), `services.rs`, `docker.rs`, `cleanup.rs`, `advisor.rs`, `snapshot.rs` · `src-tauri/src/ops/`: alerts/automations/scheduler (`engine.rs`, `rules.rs`, `cron.rs`, `approval.rs` HMAC) |
 | Frontend | `src/routes/+page.svelte` (main UI, push-to-talk state machine), `src/lib/components/*`, `src/lib/voice.ts` (WAV capture), `src/lib/avatar.ts` (avatar colour system) |

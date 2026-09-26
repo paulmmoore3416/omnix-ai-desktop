@@ -33,6 +33,9 @@ pub const PROVIDERS: &[&str] = &[
     "notion",
     "kb_core",
     "twilio",
+    // Google OAuth client secret and Developer Knowledge API key (`crate::google`).
+    "google_oauth_client",
+    "google_devknowledge",
 ];
 
 /// Keychain entries only Rust code may use. [`validate_provider`] (which
@@ -40,7 +43,11 @@ pub const PROVIDERS: &[&str] = &[
 /// read, set or delete them. `internal.ops_signing` is the HMAC key that
 /// signs approvals for unattended commands (see `ops::approval`): if the
 /// webview could set it, it could forge those approvals.
-pub const INTERNAL: &[&str] = &["internal.ops_signing"];
+///
+/// `internal.google_refresh` is the Google refresh token, stored only by the
+/// OAuth flow in `crate::google`: if the webview could set it, it could
+/// connect OMNIX to an account the user does not own.
+pub const INTERNAL: &[&str] = &["internal.ops_signing", "internal.google_refresh"];
 
 /// Store-level id check: public provider ids plus [`INTERNAL`] ones.
 pub fn validate_storage_id(id: &str) -> AppResult<()> {
