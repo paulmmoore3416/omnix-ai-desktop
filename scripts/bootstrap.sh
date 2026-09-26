@@ -13,8 +13,9 @@
 #   1. System packages (Tauri/WebKitGTK build deps, audio, jq, python venv)
 #   2. Rust (rustup, stable >= 1.95) and Node.js 24
 #   3. npm dependencies (npm ci) and a Rust dependency prefetch
-#   4. Ollama (systemd service) + chat models sized to the detected GPUs
-#   5. Speaches (faster-whisper STT) in Docker with NVIDIA GPU access
+#   4. Ollama (systemd service) + chat models; the 14B extra only when a GPU can
+#      hold it. NVIDIA (CUDA) and AMD (Vulkan, Mesa RADV) GPUs are both detected
+#   5. Speaches (faster-whisper STT) in Docker on an NVIDIA GPU, else the CPU
 #   6. Piper TTS in a private venv + a downloaded voice
 #   7. ~/.config/omnix/settings.json seeded with the above
 #   8. Long-term memory: the local kb-core service (scripts/setup-memory.sh)
@@ -22,8 +23,8 @@
 #  10. scripts/doctor.sh health check
 #
 # NVIDIA drivers are NOT installed automatically (a driver install needs a
-# reboot and can break a working desktop). If `nvidia-smi` is missing the
-# script stops and says what to run.
+# reboot and can break a working desktop). If no GPU is found at all (no
+# working `nvidia-smi`, no AMD card) the script stops and says what to run.
 #
 # Options (or set the matching environment variable):
 #   --services-only   Set up Ollama/Speaches/Piper only; skip the app build.
@@ -31,14 +32,15 @@
 #   --lan             Expose Ollama (11434) and Speaches (8000) on the LAN so
 #                     OMNIX on other machines can use this server. Default is
 #                     127.0.0.1 only.
-#   --cpu             Allow running without an NVIDIA GPU (CPU Whisper image).
+#   --cpu             Allow running without any GPU (CPU Whisper image, CPU LLM).
 #   --no-memory       Skip the long-term memory service (kb-core).
 #   --yes             Non-interactive (assume yes for apt prompts).
 #   -h | --help       Show this help.
 #
 # Tunables (environment variables):
 #   OMNIX_CHAT_MODEL     default chat model            (default: qwen3:8b)
-#   OMNIX_EXTRA_MODELS   extra Ollama models to pull   (default: "qwen3:14b")
+#   OMNIX_EXTRA_MODELS   extra Ollama models to pull   (default: "qwen3:14b" when a
+#                        GPU with >= 12 GB is free for the LLM, else none)
 #   OMNIX_STT_MODEL      Speaches/faster-whisper model (default: Systran/faster-distil-whisper-large-v3)
 #   OMNIX_STT_GPU        GPU index for Speaches, or "cpu" to keep the GPU free
 #                        for the LLM (default: the GPU with the least VRAM)
@@ -48,6 +50,8 @@
 set -Eeuo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/gpu.sh
+. "$REPO_DIR/scripts/lib/gpu.sh"
 LOG_DIR="$REPO_DIR/logs"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/bootstrap-$(date +%Y%m%d-%H%M%S).log"
@@ -115,21 +119,71 @@ fi
 ok "system packages present"
 
 # --- 2. GPU detection --------------------------------------------------------
+# NVIDIA cards (nvidia-smi) can run both Speaches (CUDA image) and Ollama.
+# AMD cards (sysfs) run Ollama only, through its Vulkan backend: Speaches has
+# no AMD image, so it goes on an NVIDIA card or the CPU.
 step "GPU detection"
-GPU_COUNT=0
+GPU_COUNT=0          # NVIDIA GPUs (what Speaches can use)
+STT_GPU=cpu
+LLM_GPUS=()          # "id|MiB" of every GPU Ollama can use
 if have nvidia-smi && nvidia-smi >/dev/null 2>&1; then
   mapfile -t GPUS < <(nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader,nounits)
   GPU_COUNT=${#GPUS[@]}
-  for g in "${GPUS[@]}"; do ok "GPU $g MiB"; done
+  for g in "${GPUS[@]}"; do
+    ok "NVIDIA GPU $g MiB"
+    IFS=, read -r idx _ mib <<<"$g"
+    LLM_GPUS+=("nv${idx// /}|${mib// /}")
+  done
   # Default Speaches to the smallest GPU so the larger one stays free for the LLM.
   STT_GPU="${OMNIX_STT_GPU:-$(printf '%s\n' "${GPUS[@]}" | sort -t, -k3 -n | head -1 | cut -d, -f1 | tr -d ' ')}"
-else
-  if [[ $ALLOW_CPU == 1 || $SERVICES == 0 ]]; then
-    warn "no working NVIDIA driver; continuing on CPU"
-  else
-    die "nvidia-smi not found/working. Install the driver first:  sudo ubuntu-drivers install && sudo reboot
-       then re-run this script (or pass --cpu to run Whisper on the CPU)."
+fi
+
+mapfile -t AMD_GPUS < <(amd_gpus)
+AMD_USABLE=0
+for a in "${AMD_GPUS[@]}"; do
+  IFS='|' read -r slot name drv total _ <<<"$a"
+  if [[ "$drv" != amdgpu ]]; then
+    warn "AMD GPU $name ($slot) uses the '$drv' kernel driver; Ollama's Vulkan backend needs amdgpu, so it is skipped"
+    continue
   fi
+  ok "AMD GPU $name ($slot), $total MiB (Ollama via Vulkan)"
+  LLM_GPUS+=("amd${slot}|${total}")
+  AMD_USABLE=$((AMD_USABLE + 1))
+done
+if ((AMD_USABLE)) && [[ $SERVICES == 1 ]]; then
+  if ! have_radv; then
+    sudo apt-get install $APT_YES --no-install-recommends mesa-vulkan-drivers libvulkan1
+  fi
+  if have_radv; then ok "Vulkan driver (RADV) installed"
+  else warn "RADV Vulkan driver still missing: Ollama will not use the AMD GPU"; fi
+fi
+
+# Largest GPU left for the LLM. The Speaches card is left out when there is
+# any other GPU, because Whisper stays resident on it.
+LLM_VRAM=0
+for c in "${LLM_GPUS[@]}"; do
+  IFS='|' read -r id mib <<<"$c"
+  if [[ "$id" == "nv${STT_GPU}" && ${#LLM_GPUS[@]} -gt 1 ]]; then continue; fi
+  if ((mib > LLM_VRAM)); then LLM_VRAM=$mib; fi
+done
+
+if ((GPU_COUNT == 0)); then
+  if ((AMD_USABLE)); then
+    warn "no NVIDIA GPU: Speaches (speech-to-text) will run on the CPU; the LLM uses the AMD GPU"
+  elif [[ $ALLOW_CPU == 1 || $SERVICES == 0 ]]; then
+    warn "no GPU found; continuing on CPU"
+  else
+    die "no GPU found (nvidia-smi not working, no AMD card). Install the NVIDIA driver first:
+       sudo ubuntu-drivers install && sudo reboot
+       then re-run this script (or pass --cpu to run everything on the CPU)."
+  fi
+fi
+
+# The 14B extra model needs ~11 GB of VRAM; on smaller cards it spills to CPU
+# and is several times slower, so it is only pulled by default when it fits.
+if [[ -z "${OMNIX_EXTRA_MODELS+x}" ]] && ((LLM_VRAM < 12000)); then
+  EXTRA_MODELS=""
+  if [[ $SERVICES == 1 ]]; then warn "largest GPU for the LLM has ${LLM_VRAM} MiB: skipping qwen3:14b (set OMNIX_EXTRA_MODELS to pull it anyway)"; fi
 fi
 
 # --- 3. Rust -----------------------------------------------------------------

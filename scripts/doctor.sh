@@ -13,6 +13,8 @@ set -uo pipefail
 
 QUIET=0; [[ "${1:-}" == "--quiet" ]] && QUIET=1
 SETTINGS_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/omnix/settings.json"
+# shellcheck source=lib/gpu.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/gpu.sh"
 FAILS=0; WARNS=0
 g=$'\e[32m'; y=$'\e[33m'; r=$'\e[31m'; o=$'\e[0m'
 pass() { [[ $QUIET == 1 ]] || echo "${g}  PASS${o}  $*"; }
@@ -35,12 +37,26 @@ else warn "node not installed (only needed to build)"; fi
 if have omnix; then pass "omnix installed at $(command -v omnix)"
 else warn "omnix binary not on PATH (dev mode: npm run tauri dev)"; fi
 
-# GPUs.
+# GPUs: NVIDIA through nvidia-smi, AMD through sysfs (Ollama runs on AMD via Vulkan).
+GPU_SEEN=0
 if have nvidia-smi && nvidia-smi >/dev/null 2>&1; then
   while IFS=, read -r idx name total used; do
     pass "GPU$idx$name —${used} /${total} MiB used"
+    GPU_SEEN=1
   done < <(nvidia-smi --query-gpu=index,name,memory.total,memory.used --format=csv,noheader,nounits)
-else warn "no NVIDIA GPU/driver visible (models will run on CPU)"; fi
+fi
+while IFS='|' read -r slot name drv total used; do
+  [[ -n "$slot" ]] || continue
+  GPU_SEEN=1
+  if [[ "$drv" != amdgpu ]]; then
+    warn "AMD GPU $name ($slot) uses the '$drv' kernel driver; Ollama's Vulkan backend needs amdgpu"
+  elif ! have_radv; then
+    warn "AMD GPU $name ($slot) found but no RADV Vulkan driver (sudo apt install mesa-vulkan-drivers)"
+  else
+    pass "AMD GPU $name ($slot) — $used / $total MiB used (Vulkan)"
+  fi
+done < <(amd_gpus)
+((GPU_SEEN)) || warn "no GPU visible (models will run on CPU)"
 
 # Settings file.
 if [[ -s "$SETTINGS_FILE" ]]; then
@@ -63,7 +79,18 @@ if ver=$(curl -fs --max-time 5 "$OLLAMA/api/version" | jq -r .version 2>/dev/nul
   if [[ -n "$MODEL" ]] && grep -qx "$MODEL" <<<"$models"; then
     if curl -fs --max-time 120 "$OLLAMA/api/generate" \
         -d "{\"model\":\"$MODEL\",\"prompt\":\"Reply with OK\",\"stream\":false,\"options\":{\"num_predict\":8}}" \
-        | jq -e '.response' >/dev/null; then pass "chat model answers"
+        | jq -e '.response' >/dev/null; then
+      pass "chat model answers"
+      # The model is loaded now: check it isn't partly on the CPU, which makes
+      # replies several times slower. Works for any GPU vendor.
+      read -r size vram < <(curl -fs --max-time 5 "$OLLAMA/api/ps" \
+        | jq -r --arg m "$MODEL" '.models[] | select(.name == $m) | "\(.size) \(.size_vram)"') || true
+      if [[ "${size:-0}" -gt 0 ]]; then
+        pct=$(( ${vram:-0} * 100 / size ))
+        if ((pct >= 100)); then pass "chat model fully on GPU"
+        elif ((pct == 0)); then warn "chat model runs on the CPU only (ollama ps)"
+        else warn "chat model only ${pct}% on GPU, the rest on CPU: use a smaller model or context (ollama ps)"; fi
+      fi
     else fail "chat model did not answer within 120 s"; fi
   fi
 else fail "ollama not reachable at $OLLAMA"; fi

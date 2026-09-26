@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Setup
+
+**Added**
+- `bootstrap.sh` and `doctor.sh` detect **AMD GPUs** (sysfs, shared helper `scripts/lib/gpu.sh`), which Ollama uses
+  through Vulkan. Bootstrap installs Mesa's RADV driver when needed and no longer stops on a machine whose only GPU
+  is AMD (Speaches then runs on the CPU). Doctor lists AMD cards with VRAM use and warns about a wrong kernel driver
+  or a missing Vulkan driver.
+- `doctor.sh` checks that the chat model is **fully on the GPU** after its test reply (any vendor) and warns with
+  the GPU share when part of it runs on the CPU.
+
+**Changed**
+- `bootstrap.sh` pulls the default extra model (`qwen3:14b`) only when a GPU with at least 12 GB is free for the LLM;
+  on smaller cards it spilled to the CPU. Setting `OMNIX_EXTRA_MODELS` still pulls whatever it names.
+
 ### Docs
 
 - Server deployment guide and runbook: corrected the reference GPU layout. Ollama runs on the AMD RX 580 8 GB through

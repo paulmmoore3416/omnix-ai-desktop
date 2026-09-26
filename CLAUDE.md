@@ -80,6 +80,7 @@ Start with `./scripts/doctor.sh`, then work down this list. Full table: `docs/SE
 |---|---|---|
 | ollama not reachable | `systemctl status ollama`, `journalctl -u ollama -n 100` | `sudo systemctl restart ollama`; CUDA errors mean a driver problem, so ask the user |
 | chat model not installed / not answering | `ollama list`, `ollama ps` | `ollama pull <model>`; if it spills to CPU, use `qwen3:8b` |
+| chat model only N% on GPU / AMD GPU warnings | `ollama ps`, `journalctl -u ollama \| grep "using device"` | Smaller model; AMD needs the `amdgpu` kernel driver and `mesa-vulkan-drivers` |
 | speaches not reachable | `docker ps -a`, `docker logs omnix-speaches` | Re-run bootstrap. GPU passthrough: `docker run --rm --gpus all ubuntu nvidia-smi` |
 | STT model not downloaded | `curl -s localhost:8000/v1/models \| jq` | `curl -X POST localhost:8000/v1/models/<model-id>` |
 | tts_voice not absolute / files missing | `jq .voice ~/.config/omnix/settings.json` | Re-run bootstrap (it fixes relative voice paths); both `.onnx` and `.onnx.json` must exist |
