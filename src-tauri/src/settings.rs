@@ -272,12 +272,29 @@ impl Default for VoiceSettings {
     }
 }
 
-/// Long-term memory settings (feature planned).
+/// Long-term memory settings (kb-core).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MemorySettings {
     /// Base URL of the kb-core service. Empty = memory disabled.
     pub backend_url: String,
+    /// Before each chat turn, search memory for the user's message and give
+    /// the model the relevant hits (as untrusted data). Small local models
+    /// rarely decide to call `search_memory` on their own; this makes memory
+    /// work without that.
+    pub auto_recall: bool,
+    /// Maximum memories/snippets injected by auto-recall (1–10).
+    pub recall_limit: u32,
+    /// Minimum relevance (0–1) for auto-recall hits.
+    pub recall_min_score: f32,
+    /// After each chat turn, let kb-core's local LLM extract durable facts
+    /// from the user's message and store them. Off by default: it records
+    /// what you say without an explicit "remember".
+    pub auto_capture: bool,
+    /// Save each conversation's user/assistant text (never tool output) to
+    /// long-term memory as a searchable transcript in the `conversations`
+    /// collection. Excluded from automatic recall.
+    pub archive_conversations: bool,
     /// Maximum stored memories.
     pub max_memory_size: u32,
     /// Summarize conversations automatically.
@@ -292,6 +309,11 @@ impl Default for MemorySettings {
     fn default() -> Self {
         Self {
             backend_url: String::new(),
+            auto_recall: true,
+            recall_limit: 4,
+            recall_min_score: 0.4,
+            auto_capture: false,
+            archive_conversations: true,
             max_memory_size: 1000,
             auto_summarize: false,
             retention_days: 90,
@@ -409,6 +431,12 @@ impl Settings {
                 Ok(u) if matches!(u.scheme(), "http" | "https") => {}
                 _ => return bad("memory.backend_url must be an http(s) URL"),
             }
+        }
+        if !(1..=10).contains(&self.memory.recall_limit) {
+            return bad("memory.recall_limit must be between 1 and 10");
+        }
+        if !(0.0..=1.0).contains(&self.memory.recall_min_score) {
+            return bad("memory.recall_min_score must be between 0 and 1");
         }
         for (label, url) in [
             ("observability.loki_url", &self.observability.loki_url),
@@ -627,6 +655,9 @@ impl Settings {
                 "Send memories to kb-core at {}",
                 new.memory.backend_url
             ));
+        }
+        if new.memory.auto_capture && !self.memory.auto_capture {
+            out.push("Automatically save facts from your chat messages to long-term memory".into());
         }
         if new.memresort.enabled
             && (self.memresort.host != new.memresort.host

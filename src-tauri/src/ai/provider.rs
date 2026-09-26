@@ -142,6 +142,9 @@ pub enum ChatEvent {
     ToolCall(ToolCall),
     /// Provider-level notice for the user (e.g. tools unavailable for this model).
     Notice(String),
+    /// Token counts and timings reported by the backend (Ollama reports them
+    /// on its final line). Emitted before `Done` when available.
+    Usage(Usage),
     /// Generation finished.
     Done {
         /// Why it stopped.
@@ -149,6 +152,21 @@ pub enum ChatEvent {
         /// Provider-native assistant content for replay (see [`ChatMessage::provider_raw`]).
         raw: Option<Value>,
     },
+}
+
+/// Backend-reported usage for one generation. Missing values are `None`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Usage {
+    /// Prompt tokens evaluated.
+    pub prompt_tokens: Option<u64>,
+    /// Tokens generated.
+    pub output_tokens: Option<u64>,
+    /// Time spent evaluating the prompt, ms.
+    pub prompt_ms: Option<u64>,
+    /// Time spent generating, ms.
+    pub generation_ms: Option<u64>,
+    /// Time spent loading the model, ms (cold start).
+    pub load_ms: Option<u64>,
 }
 
 /// Stream type returned by providers.

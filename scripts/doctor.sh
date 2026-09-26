@@ -96,6 +96,26 @@ if have docker; then
   [[ -n "$st" ]] && { [[ "$st" == running ]] && pass "container omnix-speaches running" || fail "container omnix-speaches is $st"; }
 fi
 
+# Long-term memory (kb-core), only when configured.
+KB="$(cfg .memory.backend_url)"
+if [[ -n "$KB" ]]; then
+  KB_AUTH=()
+  KB_TOKEN_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/omnix/kb-core.token"
+  [[ -r "$KB_TOKEN_FILE" ]] && KB_AUTH=(-H "Authorization: Bearer $(cat "$KB_TOKEN_FILE")")
+  if kh=$(curl -fs --max-time 5 "${KB_AUTH[@]}" "$KB/health") && [[ -n "$kh" ]]; then
+    pass "kb-core at $KB — $(jq -r '"\(.memories // "?") memories, \(.documents // "?") documents, \(.chunks // "?") chunks"' <<<"$kh" 2>/dev/null)"
+    [[ "$(jq -r '.status // "ok"' <<<"$kh")" == degraded ]] \
+      && warn "kb-core embedding model unavailable ($(jq -r '.embed_error' <<<"$kh")): search is keyword-only"
+    pend=$(jq -r '.pending_embeddings // 0' <<<"$kh")
+    [[ "$pend" =~ ^[0-9]+$ ]] && ((pend > 0)) && warn "kb-core has $pend items waiting for embeddings (normal right after indexing)"
+    if st=$(curl -fs --max-time 5 "${KB_AUTH[@]}" "$KB/stats" 2>/dev/null); then
+      llm=$(jq -r '.llm_model // empty' <<<"$st")
+      [[ -n "$llm" ]] && pass "kb-core learning model $llm" || warn "kb-core has no chat model: fact capture and contradiction checks are off"
+      jq -r '(.watch.errors // {}) | to_entries[] | "\(.key): \(.value)"' <<<"$st" | while read -r e; do echo "${y}  WARN${o}  kb-core watch folder $e"; done
+    fi
+  else fail "kb-core not reachable at $KB (systemctl --user status omnix-kb-core; journalctl --user -u omnix-kb-core -n 50)"; fi
+fi
+
 # Keychain (API keys + MCP secrets live here).
 if have gnome-keyring-daemon || pgrep -x kwalletd6 >/dev/null || pgrep -x kwalletd5 >/dev/null; then pass "secret service available"
 else warn "no Secret Service (gnome-keyring/kwallet): cloud API keys cannot be stored"; fi

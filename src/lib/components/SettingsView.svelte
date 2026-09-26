@@ -510,14 +510,36 @@
               </button>
             </div>
             <div class="glass-panel p-4 bg-white/5 text-sm text-gray-300">
-              Long-term memory uses an external <strong>kb-core</strong> service (PostgreSQL/pgvector). Leave the URL empty to keep memory disabled. Save settings before testing.
+              Long-term memory uses the local <strong>kb-core</strong> service (set up with <code>./scripts/setup-memory.sh</code>, default <code>http://127.0.0.1:8100</code>). Leave the URL empty to keep memory disabled. Save settings before testing.
             </div>
             <div class="space-y-4">
               <div>
                 <label for="kb-url" class="block text-sm font-medium mb-2">kb-core URL</label>
-                <input id="kb-url" type="text" bind:value={settings.memory.backend_url} placeholder="http://localhost:8000 (empty = disabled)" class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+                <input id="kb-url" type="text" bind:value={settings.memory.backend_url} placeholder="http://127.0.0.1:8100 (empty = disabled)" class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
               </div>
-              <SecretField provider="kb_core" label="kb-core bearer token (optional)" placeholder="token" />
+              <SecretField provider="kb_core" label="kb-core bearer token (only for a kb-core on another machine)" placeholder="token" />
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Recall automatically <span class="block text-xs text-gray-400 font-normal">Before each reply, look up memories and notes relevant to your message and give them to the assistant</span></span>
+                <input type="checkbox" bind:checked={settings.memory.auto_recall} disabled={!settings.memory.backend_url} class="w-5 h-5" />
+              </label>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label for="recall-limit" class="block text-sm font-medium mb-2">Entries recalled per message</label>
+                  <input id="recall-limit" type="number" min="1" max="10" bind:value={settings.memory.recall_limit} disabled={!settings.memory.auto_recall} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 disabled:opacity-50" />
+                </div>
+                <div>
+                  <label for="recall-min" class="block text-sm font-medium mb-2">Minimum relevance (0–1)</label>
+                  <input id="recall-min" type="number" min="0" max="1" step="0.05" bind:value={settings.memory.recall_min_score} disabled={!settings.memory.auto_recall} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 disabled:opacity-50" />
+                </div>
+              </div>
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Learn from conversations <span class="block text-xs text-gray-400 font-normal">After each reply, kb-core's local model saves lasting facts from <em>your</em> message (preferences, projects, people). Duplicates merge; outdated facts are superseded. Nothing leaves this machine. Off by default.</span></span>
+                <input type="checkbox" bind:checked={settings.memory.auto_capture} disabled={!settings.memory.backend_url} class="w-5 h-5" />
+              </label>
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Archive conversations <span class="block text-xs text-gray-400 font-normal">Keep a searchable copy of your chats (your messages and OMNIX's replies, never tool output) in the "conversations" knowledge base, so you can ask "what did we discuss about …". Not used for automatic recall.</span></span>
+                <input type="checkbox" bind:checked={settings.memory.archive_conversations} disabled={!settings.memory.backend_url} class="w-5 h-5" />
+              </label>
               <div>
                 <label for="retention" class="block text-sm font-medium mb-2">Retention Period (days) <span class="text-xs text-yellow-300">planned</span></label>
                 <input id="retention" type="number" bind:value={settings.memory.retention_days} disabled class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 opacity-50" />

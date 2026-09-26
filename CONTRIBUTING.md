@@ -68,18 +68,20 @@ git checkout -b fix/bug-description
 
 ## 🧪 Testing
 
+All of these must pass before a commit (CI runs the same gate):
+
 ```bash
-# Run frontend tests
-npm test
+# Rust: formatting, lints, tests
+cd src-tauri && cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all && cd ..
 
-# Run Rust tests
-cd src-tauri
-cargo test
+# Frontend: types, tests, build
+npm run check && npm test && npm run build
 
-# Run linting
-npm run check
-cargo clippy
+# kb-core (memory service)
+(cd kb-core && python3 -m unittest discover -s tests -t .)
 ```
+
+When dependencies change, also run `cargo audit` and `npm audit`.
 
 ## 📤 Submitting Changes
 

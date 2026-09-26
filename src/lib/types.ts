@@ -54,6 +54,11 @@ export interface Settings {
   };
   memory: {
     backend_url: string;
+    auto_recall: boolean;
+    recall_limit: number;
+    recall_min_score: number;
+    auto_capture: boolean;
+    archive_conversations: boolean;
     max_memory_size: number;
     auto_summarize: boolean;
     retention_days: number;
@@ -178,25 +183,306 @@ export interface ProcessInfo {
 /** Shape of `get_knowledge_data`. */
 export interface KnowledgeData {
   available: boolean;
+  /** The service offers kb-core's analytics/document extensions. */
+  extended: boolean;
   totalMemories: number;
   totalDocuments: number;
+  totalChunks?: number;
   totalKnowledgeBases: number;
   storageUsed: number;
   vectorDimensions: number;
   embeddingModel: string;
+  llmModel?: string | null;
+  status?: string;
+  embedError?: string | null;
+  pendingEmbeddings?: number;
+  superseded?: number;
+  links?: number;
+  categories?: Record<string, number>;
+  sources?: Record<string, number>;
+  searches24h?: number;
+  avgSearchMs?: number | null;
+  lastMaintenance?: string | null;
+  watch?: {
+    folders?: string[];
+    interval_s?: number;
+    last_run?: string | null;
+    last_result?: Record<string, { files: number; indexed: number; unchanged: number; removed: number; skipped: number }>;
+    errors?: Record<string, string>;
+  };
+  recentActivity?: Array<{ ts: string; kind: string; detail: Record<string, unknown> }>;
   memories: unknown[];
   documents: unknown[];
   knowledgeBases: unknown[];
 }
 
 /** Shape of `get_system_control_data`. */
+/** Mirrors `system::gpu::GpuInfo`. */
+export interface GpuInfo {
+  index: number;
+  vendor: string;
+  name: string;
+  driver: string | null;
+  pci: string | null;
+  utilization: number | null;
+  memory_used: number | null;
+  memory_total: number | null;
+  temperature: number | null;
+  power_w: number | null;
+  power_limit_w: number | null;
+  fan_percent: number | null;
+  clock_mhz: number | null;
+  clock_max_mhz: number | null;
+  processes: { pid: number; name: string; memory: number }[];
+  note: string | null;
+}
+
+/** Mirrors `system::metrics::DetailedStats`. */
+export interface DetailedStats {
+  cpu: number;
+  per_core: number[];
+  cpu_freq_mhz: number | null;
+  load: [number, number, number];
+  memory_total: number;
+  memory_used: number;
+  memory_available: number;
+  swap_total: number;
+  swap_used: number;
+  disks: { name: string; mount: string; fs: string; total: number; used: number; removable: boolean }[];
+  network: { name: string; rx: number; tx: number; total_rx: number; total_tx: number }[];
+  sensors: { label: string; temperature: number; critical: number | null }[];
+  uptime: number;
+  processes: number;
+}
+
+/** Mirrors `system::history::Sample`. */
+export interface HistorySample {
+  ts: number;
+  cpu: number;
+  memory: number;
+  swap: number;
+  disk: number | null;
+  net_rx: number;
+  net_tx: number;
+  temp: number | null;
+  gpus: { util: number | null; mem: number | null; temp: number | null }[];
+}
+
+export interface ModelStat {
+  model: string;
+  turns: number;
+  generations: number;
+  prompt_tokens: number;
+  output_tokens: number;
+  tokens_estimated: boolean;
+  tokens_per_sec: number | null;
+  prompt_tokens_per_sec: number | null;
+  avg_ttft_ms: number | null;
+  cold_starts: number;
+  load_ms: number;
+}
+
+/** Mirrors `ai::metrics::AgentMetrics::snapshot`. */
+export interface AgentMetrics {
+  uptime_s: number;
+  turns: number;
+  errors: number;
+  cancelled: number;
+  models: ModelStat[];
+  tools: { tool: string; calls: number; ok: number; failed: number; avg_ms: number | null; max_ms: number }[];
+  recall: { runs: number; hits: number; empty: number };
+  capture: { runs: number; saved: number };
+  recent: {
+    ts: string;
+    model: string;
+    duration_ms: number;
+    ttft_ms: number | null;
+    output_tokens: number;
+    tools: number;
+    recalled: number;
+    outcome: string;
+  }[];
+}
+
+export interface InstalledModel {
+  name: string;
+  size: number;
+  family: string | null;
+  parameter_size: string | null;
+  quantization: string | null;
+  modified_at: string | null;
+  loaded: boolean;
+}
+
+export interface LoadedModel {
+  name: string;
+  size: number;
+  size_vram: number;
+  gpu_percent: number;
+  context_length: number | null;
+  expires_at: string | null;
+  parameter_size: string | null;
+  quantization: string | null;
+}
+
+/** Shape of `get_performance`. */
+export interface PerformanceData {
+  host: DetailedStats;
+  gpus: GpuInfo[];
+  history: HistorySample[];
+  agent: AgentMetrics;
+  models: {
+    configured: string;
+    installed: InstalledModel[] | null;
+    loaded: LoadedModel[] | null;
+    error: string | null;
+  };
+  memory_store: {
+    embed_model: string | null;
+    llm_model: string | null;
+    avg_search_ms: number | null;
+    searches_24h: number | null;
+    vectors: number | null;
+    pending: number | null;
+    storage_bytes: number | null;
+  } | null;
+}
+
+export interface Service {
+  unit: string;
+  scope: 'system' | 'user';
+  description: string;
+  load: string;
+  active: string;
+  sub: string;
+  enabled: string | null;
+}
+
+export interface Container {
+  id: string;
+  name: string;
+  image: string;
+  state: string;
+  status: string;
+  ports: string;
+  project: string | null;
+  cpu: number | null;
+  memory: string | null;
+  memory_percent: number | null;
+}
+
+export interface DockerStatus {
+  available: boolean;
+  reason: string | null;
+  containers: Container[];
+}
+
+export interface CleanupItem {
+  id: string;
+  label: string;
+  description: string;
+  bytes: number;
+  kind: 'files' | 'command';
+  command: string | null;
+  partial: boolean;
+}
+
+export interface Recommendation {
+  id: string;
+  severity: 'info' | 'warning' | 'critical';
+  area: string;
+  title: string;
+  detail: string;
+  action: { kind: string; label: string; params: Record<string, unknown> } | null;
+}
+
+export type Metric =
+  | 'cpu' | 'memory' | 'swap' | 'disk' | 'temperature' | 'gpu_util' | 'gpu_memory' | 'gpu_temp'
+  | 'process_missing' | 'service_down' | 'container_down' | 'ollama_down' | 'kb_core_down';
+
+export interface Condition {
+  metric: Metric;
+  op: 'above' | 'below';
+  threshold: number;
+  sustain_secs: number;
+  target?: string | null;
+}
+
+export type OpsAction =
+  | { kind: 'notify'; title: string; message: string }
+  | { kind: 'command'; command: string; cwd?: string | null; approval?: string | null }
+  | { kind: 'ai_report'; prompt: string; save_to_memory: boolean };
+
+export type Trigger =
+  | { kind: 'alert'; alert_id: string }
+  | { kind: 'condition'; condition: Condition }
+  | { kind: 'process_start'; name: string }
+  | { kind: 'process_stop'; name: string }
+  | { kind: 'file_change'; path: string }
+  | { kind: 'idle'; minutes: number; cpu_below: number };
+
+export interface RunState {
+  last_run: string | null;
+  run_count: number;
+  last_ok: boolean | null;
+  last_result: string | null;
+}
+
+export interface Alert {
+  id: string;
+  name: string;
+  condition: Condition;
+  enabled: boolean;
+  notify: boolean;
+  cooldown_secs: number;
+  state: { firing: boolean; since: string | null; last_fired: string | null; fire_count: number; last_value: number | null };
+}
+
+export interface Automation {
+  id: string;
+  name: string;
+  trigger: Trigger;
+  action: OpsAction;
+  enabled: boolean;
+  cooldown_secs: number;
+  run: RunState;
+}
+
+export interface ScheduledTask {
+  id: string;
+  name: string;
+  schedule: string;
+  action: OpsAction;
+  enabled: boolean;
+  next_run: string | null;
+  run: RunState;
+}
+
+export interface Activity {
+  ts: string;
+  kind: string;
+  name: string;
+  ok: boolean;
+  summary: string;
+}
+
+/** Shape of `get_system_control_data`. */
 export interface SystemControlData {
   available: boolean;
-  processes: ProcessInfo[];
-  services: unknown[];
-  automations: unknown[];
-  scheduledTasks: unknown[];
-  alerts: unknown[];
+  alerts: { alert: Alert; description: string; value: number | null; unit: string }[];
+  automations: { automation: Automation; trigger: string; action: string; approved: boolean | null }[];
+  tasks: { task: ScheduledTask; when: string; action: string; approved: boolean | null }[];
+  activity: Activity[];
+}
+
+/** `ops://event` payload. */
+export interface OpsEvent {
+  kind: string;
+  name: string;
+  ok: boolean;
+  level: 'info' | 'warning' | 'critical';
+  summary: string;
+  detail: string | null;
 }
 
 /** Mirrors `ai::agent::UiEvent` (streamed over a Tauri Channel). */

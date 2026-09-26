@@ -106,6 +106,29 @@ pub async fn ask<R: Runtime>(
     }
 }
 
+/// Ask with the configured timeout; `Ok(Approved)` only when the user
+/// approved, otherwise `Err(NotApproved)` carrying `what` (after the caller's
+/// audit, if any). Convenience for actions that aren't shell commands
+/// (model deletion, cleanup, unattended-command approval, …).
+pub async fn require<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &crate::state::AppState,
+    req: &ConfirmRequest,
+) -> Result<Confirmation, Confirmation> {
+    let timeout = state
+        .settings
+        .read()
+        .await
+        .security
+        .confirmation_timeout_secs;
+    let c = ask(app, req, Duration::from_secs(timeout)).await;
+    if c == Confirmation::Approved {
+        Ok(c)
+    } else {
+        Err(c)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

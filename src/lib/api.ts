@@ -30,21 +30,7 @@ export interface AppError {
  * them are rendered disabled with a "Not yet available" badge.
  */
 export const NOT_IMPLEMENTED = new Set<string>([
-  'create_knowledge_base',
-  'export_knowledge',
-  'import_knowledge',
-  'optimize_vector_db',
-  'test_integration',
-  'toggle_service',
-  'create_automation',
-  'toggle_automation',
-  'delete_automation',
-  'create_scheduled_task',
-  'toggle_scheduled_task',
-  'create_alert',
-  'toggle_alert',
-  'run_system_cleanup',
-  'optimize_system'
+  'test_integration'
 ]);
 
 /** True if `cmd` is known to be unimplemented in the backend. */

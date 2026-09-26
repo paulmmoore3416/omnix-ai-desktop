@@ -52,6 +52,16 @@ pub fn list(monitor: &mut Monitor) -> Vec<ProcessInfo> {
     v
 }
 
+/// Names of all running processes (for process start/stop triggers).
+pub fn names(monitor: &mut Monitor) -> std::collections::HashSet<String> {
+    let sys = monitor.sys();
+    sys.refresh_processes(ProcessesToUpdate::All, true);
+    sys.processes()
+        .values()
+        .map(|p| p.name().to_string_lossy().into_owned())
+        .collect()
+}
+
 /// Terminate `pid` after native confirmation. Tier `Mutating`.
 ///
 /// Refuses PID 0/1 and OMNIX itself. Sends SIGTERM first and falls back to

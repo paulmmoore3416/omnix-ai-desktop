@@ -34,6 +34,22 @@ pub const PROVIDERS: &[&str] = &[
     "kb_core",
 ];
 
+/// Keychain entries only Rust code may use. [`validate_provider`] (which
+/// every IPC secret command calls) rejects them, so the webview can never
+/// read, set or delete them. `internal.ops_signing` is the HMAC key that
+/// signs approvals for unattended commands (see `ops::approval`): if the
+/// webview could set it, it could forge those approvals.
+pub const INTERNAL: &[&str] = &["internal.ops_signing"];
+
+/// Store-level id check: public provider ids plus [`INTERNAL`] ones.
+pub fn validate_storage_id(id: &str) -> AppResult<()> {
+    if INTERNAL.contains(&id) {
+        Ok(())
+    } else {
+        validate_provider(id)
+    }
+}
+
 /// Abstraction over the keychain so tests can use an in-memory store.
 pub trait SecretStore: Send + Sync {
     /// Store (or replace) the secret for `provider`.
@@ -103,7 +119,7 @@ pub struct KeyringStore;
 
 impl KeyringStore {
     fn entry(provider: &str) -> AppResult<keyring::Entry> {
-        validate_provider(provider)?;
+        validate_storage_id(provider)?;
         keyring::Entry::new(SERVICE, provider).map_err(map_keyring_err)
     }
 }
@@ -153,7 +169,7 @@ pub struct MemoryStore {
 
 impl SecretStore for MemoryStore {
     fn set(&self, provider: &str, value: &str) -> AppResult<()> {
-        validate_provider(provider)?;
+        validate_storage_id(provider)?;
         validate_value(value)?;
         self.inner
             .lock()
@@ -163,7 +179,7 @@ impl SecretStore for MemoryStore {
     }
 
     fn get(&self, provider: &str) -> AppResult<Option<String>> {
-        validate_provider(provider)?;
+        validate_storage_id(provider)?;
         Ok(self
             .inner
             .lock()
@@ -173,7 +189,7 @@ impl SecretStore for MemoryStore {
     }
 
     fn delete(&self, provider: &str) -> AppResult<()> {
-        validate_provider(provider)?;
+        validate_storage_id(provider)?;
         self.inner
             .lock()
             .map_err(|_| AppError::Internal("secret store lock poisoned".into()))?
@@ -343,5 +359,14 @@ mod tests {
         assert!(strip_plaintext(&mut raw));
         assert!(raw["ai"].get("openai_key").is_none());
         assert_eq!(raw["ai"]["provider"], "ollama");
+    }
+
+    #[test]
+    fn internal_ids_are_not_reachable_over_ipc() {
+        assert!(validate_provider("internal.ops_signing").is_err());
+        assert!(validate_storage_id("internal.ops_signing").is_ok());
+        assert!(validate_storage_id("nope").is_err());
+        let s = MemoryStore::default();
+        s.set("internal.ops_signing", "k").expect("internal set");
     }
 }

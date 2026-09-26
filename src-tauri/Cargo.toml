@@ -22,6 +22,8 @@ tauri = { version = "2", features = ["tray-icon"] }
 # The dialog plugin is driven from Rust only (native confirmations, file pickers).
 # No JS plugin permissions are granted to the webview for it.
 tauri-plugin-dialog = "2"
+# Desktop notifications for alerts/automations, sent from Rust only (no JS permissions granted).
+tauri-plugin-notification = "2"
 # Launch-at-login, driven from Rust by `general.auto_start` (no JS permissions granted).
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"

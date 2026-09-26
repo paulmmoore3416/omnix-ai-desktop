@@ -56,6 +56,10 @@ pub enum Confirmation {
     TimedOut,
     /// No dialog was shown because the request was denied first.
     Skipped,
+    /// Unattended run (scheduler / automation) of a command the user approved
+    /// in a native dialog when creating the rule; the approval is an HMAC over
+    /// the exact command and working directory (see `ops::approval`).
+    PreApproved,
 }
 
 /// One audit record. The hash chain covers the exact serialized line bytes.

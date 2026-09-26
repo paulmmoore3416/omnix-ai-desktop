@@ -39,3 +39,10 @@ dist
 *.rpm
 *.AppImage
 vite.config.ts.timestamp-*
+
+# Local reference corpus used to test kb-core (separate repository)
+/itsme-knowledge-base/
+
+# Python
+__pycache__/
+*.py[cod]

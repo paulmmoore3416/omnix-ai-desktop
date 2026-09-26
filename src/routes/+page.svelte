@@ -5,7 +5,7 @@
   import { listen } from '@tauri-apps/api/event';
   import { renderMarkdown } from '$lib/markdown';
   import { speak, startRecording, transcribe, type Recording } from '$lib/voice';
-  import type { Settings, SystemStatus, UiEvent } from '$lib/types';
+  import type { Settings, SystemStatus, UiEvent, OpsEvent } from '$lib/types';
   import { conditionForError, type Condition, type Emotion, type Signal, type SignalKind } from '$lib/avatar';
   import Avatar from '$lib/components/Avatar.svelte';
   import SettingsView from '$lib/components/SettingsView.svelte';
@@ -161,8 +161,21 @@
       else u();
     });
 
+    // Alerts, automation and schedule results from the ops engine.
+    let unlistenOps: (() => void) | undefined;
+    listen<OpsEvent>('ops://event', (e) => {
+      const ev = e.payload;
+      const type = ev.kind === 'alert_resolved' || (ev.ok && ev.kind !== 'alert_fired') ? 'success' : ev.ok ? 'info' : 'error';
+      addNotification(`${ev.kind === 'alert_fired' ? '⚠' : ev.ok ? '✓' : '✗'} ${ev.name}: ${ev.summary}`, type);
+      pulse(ev.kind === 'alert_fired' || !ev.ok ? 'fail' : 'notice', ev.name);
+    }).then((u) => {
+      if (alive) unlistenOps = u;
+      else u();
+    });
+
     return () => {
       unlistenPtt?.();
+      unlistenOps?.();
       recording?.cancel();
       clearInterval(micTicker);
       alive = false;

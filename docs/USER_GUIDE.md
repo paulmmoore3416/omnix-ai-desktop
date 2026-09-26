@@ -19,6 +19,10 @@ This guide takes about 10 minutes to read. You don't need to be technical.
 8. [Settings, section by section](#8-settings-section-by-section)
 9. [Troubleshooting](#9-troubleshooting)
 10. [Keyboard shortcuts](#10-keyboard-shortcuts)
+11. [The Knowledge view, tab by tab](#11-the-knowledge-view-tab-by-tab)
+12. [Getting the most out of memory](#12-getting-the-most-out-of-memory)
+13. [Your data and privacy (FAQ)](#13-your-data-and-privacy-faq)
+14. [System Control: watch, automate and maintain your computer](#14-system-control-watch-automate-and-maintain-your-computer)
 
 ---
 
@@ -70,8 +74,8 @@ That's all you need to start. Voice, memory, and cloud models are optional extra
 | **Commands** | A cheat sheet of the `/` commands |
 | **History** | The full conversation, with replies as they stream in |
 | **Settings** | Everything configurable (see [section 8](#8-settings-section-by-section)) |
-| **Knowledge** | Long-term memory and documents (needs a memory service) |
-| **System Control** | Live CPU, memory, disk, network, and a process list |
+| **Knowledge** | Long-term memory: save and search memories, index documents (needs the memory service; see §3) |
+| **System Control** | Live CPU, memory, GPUs, disks and network; processes, services and Docker containers; AI models; alerts, automations and scheduled tasks; cleanup and optimization (see [§14](#14-system-control-watch-automate-and-maintain-your-computer)) |
 | **Input bar** | 🎤 microphone, text box, and Send |
 
 OMNIX also sits in your **system tray**. Closing the window hides it there instead of quitting, so it's always one click away.
@@ -91,6 +95,32 @@ Type in the box at the bottom and press **Enter** (or click **Send**).
 - If voice is set up, click **🔊 Read aloud** under any reply to hear it.
 
 ---
+
+### Long-term memory
+
+With the memory service set up (`./scripts/setup-memory.sh`; `bootstrap.sh` does it for you), OMNIX remembers
+things between conversations and knows your notes:
+
+- **It recalls on its own.** Before answering, OMNIX looks up memories and notes related to your message. When
+  something relevant turns up, the reply shows a `✓ memory_recall` note. Ask *"what editor do I use?"* or *"write a
+  script to back up my Proxmox VMs"* and it already has the context.
+- **Tell it to remember.** *"Remember that my NAS is at 10.0.0.5."* It saves that as a memory. Saying the same thing
+  twice strengthens the memory instead of duplicating it. If you later say something that contradicts it (*"I moved
+  the NAS to 10.0.0.9"*), the old memory is retired automatically. You can still see it, and delete the new one to
+  bring it back.
+- **Let it learn (optional).** Turn on **Settings → Memory → Learn from conversations** and, after each reply, the
+  local model saves lasting facts from *your* messages (never passwords or keys). You'll see a note like
+  *🧠 Remembered: Paul set up a second Proxmox node called pve2*.
+- **Your notes stay current.** Folders you add with `./scripts/setup-memory.sh ~/notes` are re-scanned every two
+  minutes, so edits show up without re-importing.
+
+In the **Knowledge** view you can add, pin (📌 = never fades) or delete memories, see where each came from (✍️ you,
+🤖 assistant, 🧠 learned, 📥 imported), search everything, manage indexed documents, and see what the memory engine
+is doing (**Analytics**). **Export** saves everything to a file only you can read, **Import** merges one back in, and
+**Optimize** tidies up duplicates.
+
+Everything stays on your computer: the memory database, the embedding model, and the learning model all run
+locally.
 
 ## 4. Talking to OMNIX (voice)
 
@@ -264,7 +294,7 @@ admin commands, adding a new server) asks you to confirm in a pop-up.
 | **MemResort** | Connect the optional MemResort memory service |
 | **MCP Servers** | Add extra tools for the AI through the Model Context Protocol. Each tool call is checked and logged |
 | **Voice** | Speech-to-text server, Whisper model, language, Piper read-aloud, and **Test microphone** |
-| **Memory** | Connect the optional long-term memory / knowledge-base service |
+| **Memory** | The memory service URL, **Recall automatically** (on), how many entries to recall and how relevant they must be, **Learn from conversations** (off; asks you to confirm when you turn it on), and **Archive conversations** (on: a searchable copy of your chats) |
 | **Security** | Local-only mode, admin commands, autonomous mode, blocked commands, audit-log verification |
 | **Performance** | Performance-related options |
 
@@ -289,6 +319,11 @@ screen shows only "Key saved ✓", with no way to read the key back out.
 | **No models in the list** | Make sure Ollama is running (`ollama list`) and click ↻ to refresh |
 | **Cloud provider is greyed out / blocked** | Local-only mode is on. Turn it off in **Settings → Security** if you really want cloud AI |
 | **A command was blocked** | It's in the ⛔ dangerous group, or matches a rule in your blocklist. This is on purpose |
+| **Knowledge view says memory is disabled** | Run `./scripts/setup-memory.sh`, then restart OMNIX |
+| **OMNIX brings up an irrelevant or outdated memory** | Delete or edit it in **Knowledge → Memories**, or raise **Settings → Memory → Minimum relevance** |
+| **A scheduled command didn't run: "needs your approval again"** | The command or its folder changed (or the rule was edited outside OMNIX). Delete the rule and create it again to re-approve |
+| **A GPU shows "—" instead of numbers** | Its driver exposes no counters, or (NVIDIA) `nvidia-smi` isn't installed. The card is still listed so you know it's there |
+| **Search says "keyword-only"** | The embedding model isn't reachable. Check `ollama list` shows `nomic-embed-text`; new items are embedded automatically once it's back |
 
 ---
 
@@ -301,3 +336,165 @@ screen shows only "Key saved ✓", with no way to read the key back out.
 | **Enter / Space** on the 🎤 button | Start / stop recording |
 | **Esc** | Cancel a recording · close command suggestions |
 | **/** | Start a command (shows suggestions) |
+
+---
+
+## 11. The Knowledge view, tab by tab
+
+Open **🧠 Knowledge** in the sidebar. The four boxes at the top show how many **memories** and **documents** OMNIX has,
+how many **folders** it keeps in sync, and how much disk space memory uses. If memory isn't set up you'll see a yellow
+*Not configured* banner telling you how to fix it; if the embedding model is down you'll see a note that search is
+keyword-only for now (nothing is lost; it catches up by itself).
+
+**Buttons at the top right**
+
+| Button | What it does |
+|---|---|
+| 📤 **Export** | Saves every memory and indexed document to a `.jsonl` file you choose. The file is readable only by you |
+| 📥 **Import** | Merges an export file back in. Things you already have are merged, not duplicated |
+| ⚡ **Optimize** | Tidies up: merges duplicate memories, finishes any pending indexing, and compacts the database |
+
+### 💭 Memories
+
+- **Add a memory**: type one fact per memory (*"My NAS is at 10.0.0.5"*), optionally with tags, a category and an
+  importance from 1 to 10, then **💾 Save Memory**. If OMNIX already knew it, you'll see *"Already known: the existing
+  memory was reinforced"* instead of getting a duplicate.
+- Each memory shows its **category**, **importance stars**, and **where it came from**:
+  ✍️ you · 🤖 assistant (the AI saved it because you asked) · 🧠 learned (from a conversation) · 📥 imported.
+- 🔁 *n* = how many times you've said it again; 👁 *n* = how many times OMNIX recalled it.
+- The small bar on the right is how **present** the memory is. Important, recent and often-used memories are strong;
+  old, unused ones slowly fade (they're never deleted by fading, just ranked lower).
+- 📌 **Pin** a memory so it never fades. 🗑️ deletes it.
+
+### 📄 Documents
+
+- **📄 Index Document** adds a single text or Markdown file you pick.
+- **Watched folders** (if you've set any up) are listed with when they were last checked. **🔄 Sync folders** checks
+  them right now instead of waiting for the next two-minute scan.
+- Each document shows its size, how many searchable pieces (*chunks*) it was split into, and whether it's ✓ Indexed
+  or ⏳ still Embedding (it's already findable by keyword while embedding).
+- 🗑️ removes a document from the index. If it lives in a watched folder, it will come back on the next sync unless you
+  delete or move the file itself.
+
+### 📚 Knowledge Bases
+
+Separate named knowledge bases are **planned**. Today everything lives in one store; use tags, categories and folders
+to organise it.
+
+### 🔍 Search
+
+Type anything and press **Enter**. Search understands meaning *and* exact words, so both *"how do I back up my VMs"*
+and *"vzdump"* work. Each result shows whether it's a memory (💭) or which note it came from (📝), and a **relevance**
+percentage: roughly, under 25 % is noise, over 50 % is a solid match. This is exactly what OMNIX sees when it recalls
+things for a reply, so it's a good way to check why it did or didn't know something.
+
+### 📊 Analytics
+
+Real numbers from the memory engine: memories by category and by source, engine health (models in use, items waiting
+to be indexed, superseded memories, links between memories, searches in the last 24 hours and how fast they were,
+last optimisation, storage), and a **recent activity** feed (memories saved, merged, retired, documents indexed,
+facts learned). The activity feed never shows the text of your memories.
+
+---
+
+## 12. Getting the most out of memory
+
+- **One fact per memory, in plain words.** *"Paul's backup NAS is at 10.0.0.5 (Synology, share /backups)"* recalls
+  better than a paragraph mixing five topics.
+- **Just tell it.** In chat, *"remember that …"* saves a memory. *"Actually, I moved it to 10.0.0.9"* is enough to
+  retire the old fact: OMNIX's local model notices the contradiction and marks the old memory as outdated.
+- **Ask it what it knows.** *"What do you remember about my homelab?"* makes it search memory explicitly.
+- **Keep notes in a folder.** `./scripts/setup-memory.sh ~/notes` once, and every edit you make to those files is
+  picked up within two minutes. Headings help: each piece remembers which heading it came from.
+- **Pin the essentials** (your name, role, key systems) so they never fade.
+- **Too chatty?** If OMNIX brings up things that aren't relevant, raise **Settings → Memory → Minimum relevance**
+  (for example to 0.5) or lower **Entries recalled per message**. Not chatty enough? Lower it to 0.3.
+- **Turn on learning when you're comfortable.** **Learn from conversations** saves facts from your messages
+  automatically and tells you each time (*🧠 Remembered: …*). Review them in the Knowledge view; delete anything you
+  don't want kept.
+- **From a terminal** (optional): `kb-core status`, `kb-core search "question"`, `kb-core remember "fact"`,
+  `kb-core export ~/memory-backup.jsonl`.
+
+---
+
+## 13. Your data and privacy (FAQ)
+
+**Does anything I say leave my computer?**
+Not by default. *Local-only mode* is on from the start: the AI model, speech recognition, read-aloud and memory all
+run on your computer (or your own private network). Cloud AI providers are blocked unless you turn local-only mode off
+yourself, and OMNIX asks you to confirm when you do. There's no telemetry.
+
+**Where are my memories stored?**
+In one file, `~/.local/share/omnix/kb-core/memory.db`, readable only by your user account. Exports are also created
+readable only by you.
+
+**Can the AI change my system without asking?**
+No. Anything that changes your system opens a pop-up that you must approve, and dangerous actions are always blocked.
+That's true whether you or the AI proposed it. Saving a *memory* doesn't need a pop-up (it's just a note, and you can
+see and delete it in the Knowledge view), but it is recorded in the audit log.
+
+**What does "Learn from conversations" read?**
+Only **your** messages, after the reply is finished, using the local model. It never reads the AI's replies (those
+can contain text from files or web tools), and it refuses to store passwords, API keys or similar secrets.
+
+**Could something I index trick the AI?**
+OMNIX treats everything from memory and files as *information*, never as *instructions*, and anything it might
+prompt the AI to do still needs your approval. If a memory looks wrong, delete it.
+
+**What happened to a memory that disappeared?**
+If you said something newer that contradicts it, it was *superseded*: hidden from search but not deleted. Deleting the
+newer memory brings the old one back. Duplicates are merged into one memory that keeps all the tags and history.
+
+**How do I back up or move my memory?**
+**Knowledge → 📤 Export** (or `kb-core export file.jsonl`), and **📥 Import** on the other machine.
+
+**How do I erase everything?**
+Stop the service and delete the file: `systemctl --user stop omnix-kb-core && rm ~/.local/share/omnix/kb-core/memory.db*`,
+then `systemctl --user start omnix-kb-core` to start fresh. Watched folders will be re-indexed automatically.
+
+**Can OMNIX run things on its own?**
+Only what you set up in System Control (or approve when the assistant proposes a schedule or alert). A scheduled or
+automated *command* that changes anything needs your approval once, when you create it; after that OMNIX runs exactly
+that command and nothing else. If the command is edited, even outside OMNIX, it stops running until you approve it
+again. Admin (sudo) commands never run unattended. Every run is recorded in the audit log.
+
+**Where's the record of what OMNIX did?**
+In the audit log. **Settings → Security → 🔏 Verify audit log** checks that nobody has edited it.
+
+---
+
+## 14. System Control: watch, automate and maintain your computer
+
+Open **🎛️ System** in the sidebar. The tabs on the left:
+
+| Tab | What you get |
+|---|---|
+| **📊 Overview** | CPU, memory, **every GPU** (NVIDIA and AMD) and network with 15-minute history graphs, plus storage and basic facts about the machine |
+| **📈 Performance** | The detail: each GPU's load, VRAM, temperature, power, clocks and which programs use its memory; every CPU core; memory and swap; each network interface; all temperature sensors. **Agent** numbers: replies, tool calls and failures, memories recalled, facts learned. **Model** numbers: tokens per second, time to first word, cold starts, and which models sit in memory and how much of each is on the GPU |
+| **⚙️ Processes** | Running programs, sortable and filterable; **End** asks you first |
+| **🔧 Services** | Your system and user services (failed ones first) and your **Docker** containers with live CPU and memory. Start, stop and restart ask you first; system services also show your computer's password prompt. **Logs** shows recent output |
+| **🧬 Models** | Every AI model you have: size, whether it's loaded, and how much is on the GPU. **Use for chat**, **Load**, **Unload** (frees GPU memory), **Delete** (asks first), and **Download** new ones with a progress bar |
+| **🚨 Alerts** | Get a desktop notification when something needs attention: GPU too hot, disk nearly full, memory tight, a service or container down, Ollama or the memory service unreachable. One-click presets, or build your own (*"GPU 1 temperature above 85 °C for 60 seconds"*). A condition has to last for its whole window, so a brief spike doesn't nag you |
+| **🤖 Automation** | *When* something happens, *do* something. Triggers: an alert fires, a condition holds, a program starts or stops, a file changes, the computer is idle. Actions: a notification, a command, or an AI report |
+| **⏰ Scheduler** | Do something on a schedule: every 15 minutes, weekdays at 8:00, nightly at 2:00, or any cron expression. **Quick add → morning briefing** writes you a short health report every weekday morning and saves it to memory |
+| **🧹 Cleanup & Optimize** | **Optimize** lists real findings with a one-click fix (e.g. *"qwen2.5:14b is loaded but unused: unload to free 9 GB"*, *"ollama.service has failed: restart"*, *"/ is 93% full: find space"*). **Cleanup** measures reclaimable space (Trash, thumbnail and download caches, unused Docker layers, old logs) and deletes only what you tick, after one confirmation |
+
+**Commands in automations and schedules.** A command that only reads (like `df -h`) just runs. One that changes
+something asks for your approval *once*, when you create the rule. The rule then shows ✓ approved. Admin (`sudo`)
+commands and anything OMNIX always blocks can't be scheduled. Every run appears under *Recent activity* and in the
+audit log.
+
+**AI reports.** The local model gets a measured snapshot of the computer (load, GPUs, disks, failed services,
+containers, loaded models, firing alerts) and writes a short summary. It can't run anything. Tick *Save each report
+to long-term memory* to be able to ask later *"what did last week's reports say about the disk?"*
+
+**Ask in chat.** You don't need the tabs for most of this. Try:
+
+- *"How are my GPUs doing?"* or *"What's using the most memory?"*
+- *"Restart the omnix-speaches container"* (you'll get an approval pop-up)
+- *"Show me the last logs of ollama.service"*
+- *"Every weekday at 8, give me a health report"* (the assistant proposes a schedule; you confirm it)
+- *"Warn me if the disk goes over 90%"*
+
+Notifications from alerts and automations appear on your desktop and inside OMNIX, and the avatar flashes.
+

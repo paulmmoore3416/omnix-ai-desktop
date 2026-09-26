@@ -211,6 +211,109 @@ pub async fn write_file<R: Runtime>(
     Ok(result?)
 }
 
+/// Write a *private* (mode 600) file at a path the user chose in a native
+/// save dialog. The dialog is the confirmation, so none is shown here; the
+/// credential/protected-path policy still applies and the write is audited
+/// as `action`. Used for memory exports, which contain personal data.
+pub async fn write_user_chosen_private(
+    state: &AppState,
+    path: &Path,
+    content: &str,
+    action: &str,
+) -> AppResult<()> {
+    let started = Instant::now();
+    let shown = path.display().to_string();
+    let rec = AuditRecord {
+        tier: RiskTier::Mutating,
+        ..base_record(action, &shown, Source::User)
+    };
+    let target = match resolve_for_write(&shown, state.home.as_deref())
+        .and_then(|p| guard_write(state, p))
+    {
+        Ok(p) => p,
+        Err(e) => return deny(state, rec, e).await,
+    };
+    let data = content.as_bytes().to_vec();
+    let dest = target.clone();
+    let result = tokio::task::spawn_blocking(move || -> std::io::Result<()> {
+        use std::io::Write;
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        let mut f = opts.open(&dest)?;
+        f.write_all(&data)?;
+        f.sync_all()
+    })
+    .await?;
+    state
+        .audit
+        .record(AuditRecord {
+            command: target.display().to_string(),
+            decision: if result.is_ok() {
+                Decision::Allowed
+            } else {
+                Decision::Failed
+            },
+            confirmation: Confirmation::Approved,
+            duration_ms: Some(elapsed_ms(started)),
+            detail: Some(match &result {
+                Ok(()) => format!(
+                    "{} bytes; path chosen in a native save dialog",
+                    content.len()
+                ),
+                Err(e) => e.to_string(),
+            }),
+            ..rec
+        })
+        .await?;
+    Ok(result?)
+}
+
+/// Read a UTF-8 file the user chose in a native open dialog, up to
+/// `max_bytes`, under the credential-path policy; audited as `action`.
+pub async fn read_user_chosen(
+    state: &AppState,
+    path: &Path,
+    max_bytes: u64,
+    action: &str,
+) -> AppResult<String> {
+    let started = Instant::now();
+    let shown = path.display().to_string();
+    let rec = base_record(action, &shown, Source::User);
+    let p = match resolve_existing(&shown, state.home.as_deref()).and_then(|p| guard_read(state, p))
+    {
+        Ok(p) => p,
+        Err(e) => return deny(state, rec, e).await,
+    };
+    let meta = tokio::fs::metadata(&p).await?;
+    if !meta.is_file() || meta.len() > max_bytes {
+        return Err(AppError::InvalidInput(format!(
+            "{} is not a file of at most {} MiB",
+            p.display(),
+            max_bytes / 1024 / 1024
+        )));
+    }
+    let content = tokio::fs::read_to_string(&p).await.map_err(|e| {
+        AppError::InvalidInput(format!("cannot read {} as UTF-8 text: {e}", p.display()))
+    })?;
+    state
+        .audit
+        .record(AuditRecord {
+            command: p.display().to_string(),
+            decision: Decision::Allowed,
+            confirmation: Confirmation::Approved,
+            duration_ms: Some(elapsed_ms(started)),
+            detail: Some("path chosen in a native open dialog".into()),
+            ..rec
+        })
+        .await?;
+    Ok(content)
+}
+
 fn base_record(action: &str, path: &str, source: Source) -> AuditRecord {
     AuditRecord {
         id: uuid::Uuid::new_v4().to_string(),
