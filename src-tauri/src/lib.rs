@@ -196,6 +196,8 @@ pub fn run() {
             commands::knowledge::sync_knowledge_folders,
             commands::knowledge::semantic_search,
             commands::knowledge::index_document,
+            commands::knowledge::sync_note,
+            commands::knowledge::unsync_note,
             commands::knowledge::create_knowledge_base,
             commands::knowledge::list_knowledge_bases,
             commands::knowledge::delete_knowledge_base,

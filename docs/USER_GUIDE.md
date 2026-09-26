@@ -107,11 +107,34 @@ to show or hide it. It has five tabs:
 
 | Tab | What it does |
 |---|---|
-| **📈 Live** | CPU and memory (last 5 minutes), each GPU with load, VRAM and temperature, the AI models loaded right now (⏏ unloads one to free VRAM), network, fullest disks, and how fast the assistant is answering |
+| **📈 Live** | CPU and memory (last 2 minutes, refreshed every 1.5 s; charts glide and numbers ease instead of jumping), each GPU with load, VRAM and temperature, the AI models loaded right now (⏏ unloads one to free VRAM), network, fullest disks, and how fast the assistant is answering |
 | **⚡ Tasks** | **Side tasks** run next to the chat. Type a request and press **Run side task** (or Ctrl+Enter). Several can run at once. Each card streams its answer and has Stop, Copy, Pin, **💬 To chat** (puts the result in your chat box) and Again. **📋 Brief** writes a situation brief (below). Start a task with `/` to run a command such as `/monitor` or `/recall` |
 | **📚 Prompts** | Your prompt library. Type a fill-in in the top box, then click **⚡ Task** or **💬 Chat** on a prompt. `{{input}}` in a prompt is replaced by the fill-in. Add, edit or delete prompts. **Reset to defaults** restores the built-in set (shift huddle agenda, incident summary, SOP outline, workbook, rewrite, explain a command) |
-| **📌 Pins** | Replies and task results you pinned. Copy them, send them back to the chat, or **🧠 Remember** one to save it to long-term memory. Pins stay on this computer |
+| **📌 Pins** | Replies and task results you pinned. Copy them, send them back to the chat, add them to the notepad (**📝 Note**), or **🧠 Remember** one to save it to long-term memory. Pins stay on this computer |
 | **🛰️ Ops** | Alerts that are firing, what's scheduled next and your automations, each with **▶ Run now**, plus recent activity |
+
+**Notepad.** Under every tab sits a Markdown notepad. Drag its top edge to make it taller or shorter
+(double-click the edge to reset, or focus it and use ↑/↓), or click **▸ Notepad** to fold it away. Pick a note from
+the list, **＋** starts a new one and **🗑** deletes one (click twice). Three views: **✎** write, **◫** write with a
+live preview underneath, **👁** preview only. The preview renders headings, bold, lists, tables, quotes, code and task
+lists (☐/☑). The toolbar adds bold, italic, a heading, bullets, a task, and code; **Ctrl+B / Ctrl+I** work too, and
+**Ctrl+Enter** ticks the task on the current line. Then: **⧉** copy, **💬** put the note in the chat box, **🧹** tidy
+it into clean Markdown (a side task; the result appears in Tasks), and **📌** pin it. Send text *to* the notepad
+with **📝 Note** on any reply, task result or pin.
+
+- **📋 Clips** (top right of the notepad) keeps the last 25 things you copied with OMNIX's 📋 buttons, newest first,
+  even when the system clipboard is blocked. Click one to add it to the note, or send it to the chat. **📥 Paste
+  from clipboard** adds what's on the system clipboard.
+- **🔗 Keep in memory** indexes the note in long-term memory (the **notes** knowledge base in Knowledge →
+  Documents) so OMNIX can recall it in chat, and re-syncs it a few seconds after you stop typing. Only the changed
+  parts are re-embedded. Click **🔗** again to remove it from memory (the note itself stays). The status line shows
+  when it last synced.
+- Notes, clips and the notepad size are kept on this computer, like pins. Clear clips with **Clear clips**.
+
+**Display (Aa).** The **Aa** button in the Workspace header sets the **text size** (S, M, L, XL, for the Workspace
+and the conversation), the **accent colour** (six colours, or the rainbow swatch to follow the avatar's mood), and
+the **avatar size**. Drag the Workspace's left edge to make it wider or narrower (or focus the edge and use ←/→).
+These settings are remembered.
 
 **While OMNIX is replying, keep typing.** Anything you send before the reply finishes runs as a side task instead
 of waiting.
@@ -125,6 +148,22 @@ one is slower.
 **Situation brief.** Click **📋 Situation brief** on Home (or **📋 Brief** in Tasks). OMNIX takes a snapshot of
 alerts, CPU, memory, disks, GPUs, loaded models, recent failures and upcoming schedules, and writes a short status
 (OK / Watch / Act) with suggested actions. Only those metrics go into it, never your chat or memories.
+
+### Command palette (Ctrl + K)
+
+Press **Ctrl + K** anywhere (or click **🔎 Search** at the top of the sidebar) and start typing. One box reaches:
+
+- **Actions**: situation brief, new note, clear the conversation, show/hide the Workspace
+- **Go to**: every view, plus voice settings
+- **Workspace**: jump straight to Live, Tasks, Prompts, Pins or Ops
+- **Notes**: open any note (🔗 marks the ones kept in memory)
+- **Prompts** and **Commands**: put a saved prompt or a `/command` in the chat box
+- **Display**: text size and avatar size
+- **Memory**: after three letters, your long-term memory is searched by meaning. **Enter** puts a result in the
+  chat box, **Shift + Enter** adds it to the notepad
+- **Ask**: send what you typed to the chat, or run it as a side task
+
+Use **↑ / ↓** to move and **Esc** to close.
 
 ---
 
@@ -292,6 +331,10 @@ A mood and a condition can show at the same time. For example, an amber core ins
 
 Click **KEY** in the avatar's corner to open the colour key in the app. It highlights whatever is showing right now.
 
+**Make it bigger or smaller.** Hover the avatar and use **−** / **＋** in the top-right corner of the panel (50% to
+160%; click the percentage to reset), or use **Aa → Avatar** in the Workspace, or **Ctrl+K → Bigger avatar**. The
+size is remembered. During a conversation the avatar shrinks a little to make room, relative to your size.
+
 ### Mood (core and inner rings)
 
 | Colour | Mood | It means | What it looks like |
@@ -404,9 +447,12 @@ screen shows only "Key saved ✓", with no way to read the key back out.
 | **Ctrl + Space** (hold) | Push-to-talk from anywhere |
 | **Enter / Space** on the 🎤 button | Start / stop recording |
 | **Esc** | Cancel a recording · close command suggestions |
+| **Ctrl + K** | Command palette: go anywhere, run actions, open notes, use prompts, search memory |
 | **Ctrl + .** | Show / hide the Workspace |
 | **↑ / ↓** (empty box) | Previous / next message you sent |
 | **Ctrl + Enter** (Tasks box) | Run a side task |
+| **Ctrl + Enter** (notepad) | Tick / untick the task on the current line |
+| **Ctrl + B / Ctrl + I** (notepad) | Bold / italic |
 | **/** | Start a command (shows suggestions) |
 
 ---
@@ -540,6 +586,12 @@ Only what you set up in System Control (or approve when the assistant proposes a
 automated *command* that changes anything needs your approval once, when you create it; after that OMNIX runs exactly
 that command and nothing else. If the command is edited, even outside OMNIX, it stops running until you approve it
 again. Admin (sudo) commands never run unattended. Every run is recorded in the audit log.
+
+**Can other AI tools use my memory?**
+Only if you set it up. `kb-core mcp` lets an MCP client such as Claude Code or Claude Desktop search your memory,
+and you must name which knowledge bases it may see. It's read-only unless you add `--allow-write`. The client's
+model sees what it finds, so if that model runs in the cloud, keep sensitive knowledge bases (patient notes, anything
+with PHI) out of scope. See the kb-core README.
 
 **Where's the record of what OMNIX did?**
 In the audit log. **Settings → Security → 🔏 Verify audit log** checks that nobody has edited it.

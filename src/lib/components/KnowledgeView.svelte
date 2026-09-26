@@ -97,7 +97,8 @@
     user: '✍️ you',
     assistant: '🤖 assistant',
     extract: '🧠 learned',
-    import: '📥 imported'
+    import: '📥 imported',
+    mcp: '🔌 via MCP'
   };
   /** Who hid a memory (kb-core `judged_by`). */
   const judgeLabel: Record<string, string> = {

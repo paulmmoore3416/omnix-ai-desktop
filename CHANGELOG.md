@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Workspace notepad.** A resizable Markdown notepad under every Workspace tab: several notes, write / split /
+  preview views (headings, tables, quotes, code, ☐/☑ task lists; sanitized like chat), a formatting toolbar,
+  Ctrl+B/I and Ctrl+Enter to tick tasks, 🧹 Tidy (side task), copy, pin, and send to chat. **📝 Note** on replies,
+  task results and pins appends to the open note. **📋 Clips** keeps the last 25 things copied with OMNIX's Copy
+  buttons, even when the system clipboard is blocked.
+- **Notes in long-term memory.** 🔗 on a note keeps it indexed in kb-core (`notes` knowledge base) and re-syncs it
+  4 s after the last edit; kb-core re-embeds only the changed chunks. New commands `sync_note` / `unsync_note`
+  confine the document name to `omnix-notepad::<id>.md`, so a note can never replace a watched file's document.
+- **Command palette (Ctrl+K).** Views, workspace tabs, actions, notes, saved prompts, slash commands, display
+  settings, plus live semantic search of memory (Enter → chat box, Shift+Enter → notepad; results are plain text).
+- **Display settings (Aa).** Text size S–XL for the Workspace and the conversation, six accent colours or "follow
+  the avatar's mood", avatar size 50–160% (also − / ＋ when you hover the avatar), and a draggable Workspace width.
+- **kb-core MCP server.** `kb-core mcp` exposes `search_memory` and `list_collections` (and `remember` with
+  `--allow-write`) to MCP clients such as Claude Code over stdio. Scope is mandatory (`--collections a,b`, or `--all`
+  with `--exclude`) and enforced by the server, searches don't count as recall, and memories it writes carry the
+  new `mcp` source, which OMNIX labels "saved by an external AI tool, not verified by the user" in recall.
 - **Workspace dock and side tasks.** A panel beside Home and the conversation (🧰 or Ctrl+.) with five tabs.
   **Live**: CPU, memory, every GPU with VRAM, loaded models (with unload), network, disks and assistant
   throughput. **Tasks**: *side tasks* run next to the chat (several at once, capped by Settings → Performance →
@@ -50,6 +66,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (no details); a text when a model download or a rule's command/report ran at least `long_job_minutes`; alerts
   without their own phone choice call for critical ones and text for the rest (`alerts_by_severity`); a text when
   Ollama or kb-core has been down for `service_down_minutes`, and when it is back.
+
+### Changed
+- **Smoother live metrics.** The Live tab reads cheap host and GPU stats every 1.5 s (the full snapshot every
+  10 s), plots the last 2 minutes as monotone curves placed by time that glide continuously, tweens the numbers and
+  eases the bars. All sparklines now draw smooth curves that never overshoot the data.
+- **More legible Workspace.** Text is sized in em from one base size, with a higher-contrast palette (secondary
+  text ≈ 10:1, faint ≈ 7:1 instead of gray-500) and an accent colour used consistently for tabs, focus and
+  progress.
 
 ### Added
 - **Texts and calls to your phone** through Twilio (Settings → Phone, off by default). Alerts can text or call you

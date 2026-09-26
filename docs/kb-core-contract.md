@@ -75,8 +75,8 @@ bundled service adds consolidation info:
 `status` is `created`, `reinforced` (a near-verbatim duplicate: the existing
 memory's id is returned and strengthened) or `updated` (the duplicate carried
 more detail, so the existing memory adopted the new wording). `source`
-(`user`, `assistant`, `extract` or `import`) is an optional extension; OMNIX
-sends `assistant` for the model's `remember` tool.
+(`user`, `assistant`, `extract`, `import` or `mcp`) is an optional extension; OMNIX
+sends `assistant` for the model's `remember` tool, and `kb-core mcp` sends `mcp`.
 
 ### `DELETE /memories/{id}`
 
@@ -111,7 +111,7 @@ the query is still returned; it only orders results (`explain.rank_score`, the
 key results are sorted by). Results may be memories or document chunks. For a
 chunk, `content` starts with its breadcrumb (`notes.md › Backups › ZFS`), `kind`
 is `document`, and `source` is the document name. `origin` (extension) is the
-provenance: `user`, `extract`, `assistant` or `import` for memories, `document`
+provenance: `user`, `extract`, `assistant`, `import` or `mcp` for memories, `document`
 for chunks. OMNIX turns it into a trust label for the model. `rejected` (extension)
 counts the user's "this was wrong" flags; each one multiplies the memory's rank by
 0.6 (at most four count), so it sorts below better matches but is still returned

@@ -698,6 +698,8 @@ fn origin_label(h: &SearchHit) -> String {
         Some("extract") => "memory learned from the user's messages".into(),
         Some("import") => "imported memory".into(),
         Some("assistant") => "memory saved by the assistant, not verified by the user".into(),
+        // Written through `kb-core mcp --allow-write` by another AI tool.
+        Some("mcp") => "memory saved by an external AI tool, not verified by the user".into(),
         // Contract-only services don't report provenance: don't guess.
         _ => "memory, origin unknown".into(),
     }
@@ -1650,6 +1652,8 @@ mod tests {
         assert!(with(Some("import")).contains("[imported memory,"));
         assert!(with(Some("assistant"))
             .contains("[memory saved by the assistant, not verified by the user,"));
+        assert!(with(Some("mcp"))
+            .contains("[memory saved by an external AI tool, not verified by the user,"));
         // A contract-only service reports no provenance: never claim the user said it.
         assert!(with(None).contains("[memory, origin unknown,"));
         assert!(with(Some("something-new")).contains("[memory, origin unknown,"));

@@ -12,7 +12,11 @@
   import KnowledgeView from '$lib/components/KnowledgeView.svelte';
   import SystemControlView from '$lib/components/SystemControlView.svelte';
   import WorkspaceDock from '$lib/components/workspace/WorkspaceDock.svelte';
-  import { REPLY_ACTIONS, copyText, type SideTask } from '$lib/workspace';
+  import CommandPalette from '$lib/components/CommandPalette.svelte';
+  import type { MemoryHit, PaletteItem } from '$lib/palette';
+  import { loadNotes, noteTitle } from '$lib/notepad';
+  import { REPLY_ACTIONS, copyText, loadPrompts, type SideTask } from '$lib/workspace';
+  import { TEXT_SIZES, clampAvatar, loadDisplay, saveDisplay } from '$lib/display';
   
   let currentView = $state('home');
   let userInput = $state('');
@@ -152,6 +156,13 @@
     }
   });
 
+  // Display preferences (text size, accent, avatar size, dock width).
+  let display = $state(loadDisplay());
+  $effect(() => saveDisplay($state.snapshot(display)));
+  function resizeAvatar(delta: number) {
+    display.avatar = clampAvatar(display.avatar + delta);
+  }
+
   /** Run text as a side task (opens the dock). */
   async function sideTask(text: string, opts: { title?: string; context?: string } = {}) {
     dockOpen = true;
@@ -177,6 +188,12 @@
     dockOpen = true;
     await tick();
     dock?.pin(text, source);
+  }
+
+  async function noteText(text: string, source: string) {
+    dockOpen = true;
+    await tick();
+    dock?.note(text, source);
   }
 
   async function copyMessage(text: string) {
@@ -215,6 +232,69 @@
     { id: 'knowledge', label: 'Knowledge', icon: '🧠', badge: null },
     { id: 'system', label: 'System Control', icon: '🎛️', badge: null }
   ]);
+
+  // Command palette (Ctrl+K): everything in one box, plus memory search.
+  let paletteOpen = $state(false);
+  async function withDock(fn: () => void) {
+    dockOpen = true;
+    if (!chatView) currentView = 'home';
+    await tick();
+    fn();
+  }
+  let paletteItems = $derived.by<PaletteItem[]>(() => {
+    if (!paletteOpen) return [];
+    const go = (id: string) => () => {
+      settingsTab = 'general';
+      currentView = id;
+    };
+    const items: PaletteItem[] = [
+      { id: 'brief', group: 'Actions', icon: '📋', label: 'Situation brief', keywords: 'status summary alerts gpu', run: () => withDock(() => dock?.brief()) },
+      { id: 'new-note', group: 'Actions', icon: '📝', label: 'New note', keywords: 'notepad write jot', run: () => withDock(() => dock?.newNote()) },
+      { id: 'clear', group: 'Actions', icon: '🧹', label: 'Clear the conversation', keywords: 'reset chat', run: () => clearConversation() },
+      { id: 'dock', group: 'Actions', icon: '🧰', label: dockOpen ? 'Hide the workspace' : 'Show the workspace', hint: 'Ctrl+.', keywords: 'dock side panel', run: () => (dockOpen = !dockOpen) },
+      ...navItems.map((n) => ({ id: `go-${n.id}`, group: 'Go to', icon: n.icon, label: n.label, run: go(n.id) })),
+      { id: 'go-voice', group: 'Go to', icon: '🎙️', label: 'Voice settings', keywords: 'microphone tts stt', run: () => { settingsTab = 'voice'; currentView = 'settings'; } },
+      ...([
+        ['live', '📈', 'Live metrics', 'cpu gpu memory vram'],
+        ['tasks', '⚡', 'Side tasks', 'run parallel'],
+        ['prompts', '📚', 'Prompt library', 'templates'],
+        ['pins', '📌', 'Pinboard', 'pins saved'],
+        ['activity', '🛰️', 'Ops feed', 'alerts automations schedules']
+      ] as const).map(([t, icon, label, keywords]) => ({
+        id: `ws-${t}`, group: 'Workspace', icon, label, keywords, run: () => withDock(() => dock?.show(t))
+      })),
+      ...loadNotes().notes.filter((n) => n.text.trim()).map((n) => ({
+        id: `note-${n.id}`, group: 'Notes', icon: n.synced ? '🔗' : '📝', label: noteTitle(n.text, 60),
+        hint: n.synced ? 'in memory' : undefined, keywords: n.text.slice(0, 300),
+        run: () => withDock(() => dock?.openNote(n.id))
+      })),
+      ...loadPrompts().map((p) => ({
+        id: `prompt-${p.id}`, group: 'Prompts', icon: p.icon, label: p.title, hint: p.target === 'task' ? 'to chat box' : undefined,
+        keywords: p.text.slice(0, 200), run: () => insertIntoInput(p.text.replace('{{input}}', '').trim())
+      })),
+      ...['/execute ', '/file read ', '/file list ', '/monitor', '/remember ', '/recall ', '/search '].map((c) => ({
+        id: `cmd-${c}`, group: 'Commands', icon: '⌘', label: c.trim(), run: () => insertIntoInput(c)
+      })),
+      ...(['sm', 'md', 'lg', 'xl'] as const).map((t) => ({
+        id: `text-${t}`, group: 'Display', icon: 'Aa', label: `Text size ${TEXT_SIZES[t].label}`, keywords: 'font bigger smaller zoom',
+        hint: display.text === t ? 'current' : undefined, run: () => (display.text = t)
+      })),
+      { id: 'av-up', group: 'Display', icon: '➕', label: 'Bigger avatar', keywords: 'animation size enlarge', run: () => resizeAvatar(0.1) },
+      { id: 'av-down', group: 'Display', icon: '➖', label: 'Smaller avatar', keywords: 'animation size shrink', run: () => resizeAvatar(-0.1) },
+      { id: 'av-reset', group: 'Display', icon: '↺', label: 'Reset avatar size', keywords: 'animation', run: () => (display.avatar = 1) }
+    ];
+    return items;
+  });
+
+  async function paletteMemorySearch(query: string): Promise<MemoryHit[]> {
+    return call<MemoryHit[]>('semantic_search', { query, limit: 8, collection: null });
+  }
+
+  function useMemory(hit: MemoryHit, target: 'chat' | 'note') {
+    // Memory text is data: it only ever goes into an editable box.
+    if (target === 'note') noteText(hit.content, hit.kind === 'document' ? `Memory · ${hit.source ?? 'document'}` : 'Memory');
+    else insertIntoInput(hit.content);
+  }
 
   // Performance: Memoized filtered messages
   let recentMessages = $derived(messages.slice(-50));
@@ -626,6 +706,11 @@
   // Esc cancels an in-progress recording from anywhere in the window.
   function handleWindowKeyDown(event: KeyboardEvent) {
     if (event.key === 'Escape' && micState === 'recording') cancelListening();
+    // Ctrl+K opens the command palette.
+    if (event.key.toLowerCase() === 'k' && (event.ctrlKey || event.metaKey) && !event.altKey) {
+      event.preventDefault();
+      paletteOpen = !paletteOpen;
+    }
     // Ctrl+. shows/hides the workspace dock.
     if (event.key === '.' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
@@ -671,7 +756,7 @@
         <div class="flex items-start gap-3">
           <span class="text-2xl">{message.role === 'user' ? '👤' : '🤖'}</span>
           <div class="flex-1">
-            <div class="text-sm text-gray-400 mb-1">
+            <div class="text-[0.8em] text-gray-400 mb-1">
               {message.timestamp.toLocaleTimeString()}
             </div>
             {#if message.role === 'assistant'}
@@ -687,6 +772,7 @@
                 {/if}
                 <button class="msg-act" onclick={() => copyMessage(message.content)} title="Copy the reply">📋 Copy</button>
                 <button class="msg-act" onclick={() => pinText(message.content, `Reply · ${message.timestamp.toLocaleString()}`)} title="Pin to the workspace board">📌 Pin</button>
+                <button class="msg-act" onclick={() => noteText(message.content, `Reply · ${message.timestamp.toLocaleString()}`)} title="Append to the open note in the workspace notepad">📝 Note</button>
                 {#each REPLY_ACTIONS as a (a.label)}
                   <button class="msg-act" onclick={() => sideTask(a.instruction, { title: `${a.icon} ${a.label}`, context: message.content })} title="{a.label}: runs as a side task, the chat stays free">{a.icon} {a.label}</button>
                 {/each}
@@ -770,6 +856,10 @@
       <p class="text-xs text-cosmic-cyan mt-1">v1.1.0</p>
     </div>
 
+    <button class="palette-btn mb-4" onclick={() => (paletteOpen = true)} title="Command palette: go anywhere, run actions, search memory">
+      <span>🔎 Search</span><kbd>Ctrl K</kbd>
+    </button>
+
     <nav class="flex-1 space-y-2">
       {#each navItems as item}
         <button
@@ -843,7 +933,12 @@
           <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span><span class="blob b4"></span>
         </div>
 
-        <div class="relative z-10 flex-shrink-0 flex justify-center pt-3">
+        <div class="avatar-stage relative z-10 flex-shrink-0 flex justify-center pt-3">
+          <div class="avatar-size" role="group" aria-label="Avatar size">
+            <button onclick={() => resizeAvatar(-0.1)} disabled={display.avatar <= 0.5} title="Smaller" aria-label="Smaller avatar">−</button>
+            <button class="pct" onclick={() => (display.avatar = 1)} title="Reset to 100%">{Math.round(display.avatar * 100)}%</button>
+            <button onclick={() => resizeAvatar(0.1)} disabled={display.avatar >= 1.6} title="Larger" aria-label="Larger avatar">＋</button>
+          </div>
           <Avatar
             emotion={avatarEmotion}
             isSpeaking={isSpeaking}
@@ -853,7 +948,7 @@
             signal={avatarSignal}
             cpu={systemStatus.cpu}
             memory={systemStatus.memory}
-            scale={messages.length ? 0.82 : 1}
+            scale={display.avatar * (messages.length ? 0.82 : 1)}
             {streamTick}
           />
         </div>
@@ -891,7 +986,7 @@
           <div class="relative z-10 flex items-center justify-end px-5 pt-1">
             <button onclick={clearConversation} disabled={isProcessing} class="glass-chip px-3 py-1 text-xs disabled:opacity-50">🧹 Clear</button>
           </div>
-          <div class="relative z-10 flex-1 min-h-0 overflow-auto px-5 pb-5 pt-2 chat-fade" bind:this={messageContainer}>
+          <div class="relative z-10 flex-1 min-h-0 overflow-auto px-5 pb-5 pt-2 chat-fade" style="font-size: {TEXT_SIZES[display.text].chat}px" bind:this={messageContainer}>
             {@render conversation()}
           </div>
         {/if}
@@ -922,7 +1017,7 @@
       </div>
     {:else if currentView === 'history'}
       <!-- History View with performance optimization -->
-      <div class="flex-1 glass-panel p-6 overflow-auto animate-fade-in" bind:this={messageContainer}>
+      <div class="flex-1 glass-panel p-6 overflow-auto animate-fade-in" style="font-size: {TEXT_SIZES[display.text].chat}px" bind:this={messageContainer}>
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-2xl font-bold glow-text">Conversation</h2>
           <button onclick={clearConversation} disabled={isProcessing} class="glass-panel px-3 py-1 text-sm hover:bg-white/10 disabled:opacity-50">🧹 Clear</button>
@@ -1068,10 +1163,26 @@
     </div>
   </main>
 
+  <CommandPalette
+    bind:open={paletteOpen}
+    items={paletteItems}
+    searchMemory={paletteMemorySearch}
+    onMemory={useMemory}
+    onAsk={(text) => {
+      if (!chatView) currentView = 'home';
+      userInput = text;
+      sendMessage();
+    }}
+    onTask={(text) => sideTask(text)}
+  />
+
   <!-- Workspace dock: mounted once, shown beside Home and the conversation. -->
   <div class="z-10 py-4 pr-4 flex min-h-0" class:hidden={!dockOpen || !chatView}>
     <WorkspaceDock
       bind:this={dock}
+      bind:display
+      {moodColor}
+      visible={dockOpen && chatView}
       {opsTick}
       notify={addNotification}
       onChat={(text) => {
@@ -1188,6 +1299,60 @@
     0%, 100% { border-radius: 42% 58% 63% 37% / 45% 40% 60% 55%; }
     50% { border-radius: 60% 40% 35% 65% / 55% 62% 38% 45%; }
   }
+  .palette-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.55rem 0.8rem;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    color: #c3cad6;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .palette-btn:hover { background: rgba(255, 255, 255, 0.09); border-color: rgba(34, 211, 238, 0.4); color: #fff; }
+  .palette-btn kbd {
+    font-family: ui-monospace, monospace;
+    font-size: 0.68rem;
+    padding: 0.05rem 0.35rem;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #9aa3b4;
+  }
+
+  /* Avatar size control: appears when you hover the avatar. */
+  .avatar-size {
+    position: absolute;
+    top: 0.75rem;
+    right: 1rem;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 10px;
+    background: rgba(10, 12, 20, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
+  .avatar-stage:hover .avatar-size,
+  .avatar-size:focus-within { opacity: 1; }
+  .avatar-size button {
+    min-width: 1.6rem;
+    padding: 0.1rem 0.35rem;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    color: #dbe2ec;
+  }
+  .avatar-size button.pct { font-variant-numeric: tabular-nums; min-width: 2.8rem; color: #9aa3b4; }
+  .avatar-size button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); color: #fff; }
+  .avatar-size button:disabled { opacity: 0.35; }
+
   /* Messages fade out under the avatar instead of hitting a hard edge. */
   .chat-fade {
     -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px);

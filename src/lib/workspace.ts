@@ -9,6 +9,7 @@
  */
 import type { PerformanceData, SystemControlData } from './types';
 import { bytes, pct } from './format';
+import { recordClip } from './notepad';
 
 // ---------------------------------------------------------------- storage
 
@@ -229,8 +230,13 @@ export function briefContext(
 
 // ---------------------------------------------------------------- clipboard
 
-/** Copy text with the web clipboard API. Returns false when it isn't allowed. */
+/**
+ * Copy text with the web clipboard API. Returns false when it isn't allowed.
+ * Either way the text is kept in the notepad's clip history, so it can still
+ * be pasted from there.
+ */
 export async function copyText(text: string): Promise<boolean> {
+  recordClip(text);
   try {
     await navigator.clipboard.writeText(text);
     return true;

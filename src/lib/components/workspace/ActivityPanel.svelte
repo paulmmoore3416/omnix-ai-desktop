@@ -60,11 +60,11 @@
   }
 </script>
 
-<div class="space-y-3 text-sm">
+<div class="space-y-3">
   {#if error && !ops}
-    <p class="text-xs text-red-300">{error}</p>
+    <p class="small text-red-300">{error}</p>
   {:else if !ops}
-    <p class="text-xs text-gray-400">Loading…</p>
+    <p class="small faint">Loading…</p>
   {:else}
     <section>
       <h4 class="head">Alerts</h4>
@@ -73,13 +73,13 @@
           {#each firing as a (a.alert.id)}
             <li class="row border-red-400/40 bg-red-500/10">
               <span>🚨</span>
-              <span class="flex-1 min-w-0"><span class="font-medium">{a.alert.name}</span><span class="block text-[11px] text-gray-400 truncate">{a.description}{a.value != null ? ` · now ${a.value.toFixed(1)}${a.unit}` : ''}</span></span>
-              <span class="text-[11px] text-gray-400">{ago(a.alert.state.since)}</span>
+              <span class="flex-1 min-w-0"><span class="font-medium">{a.alert.name}</span><span class="block tiny faint truncate">{a.description}{a.value != null ? ` · now ${a.value.toFixed(1)}${a.unit}` : ''}</span></span>
+              <span class="tiny faint">{ago(a.alert.state.since)}</span>
             </li>
           {/each}
         </ul>
       {:else}
-        <p class="text-xs text-green-300">✓ {ops.alerts.filter((a) => a.alert.enabled).length} alert{ops.alerts.length === 1 ? '' : 's'} watching, none firing</p>
+        <p class="small text-green-300">✓ {ops.alerts.filter((a) => a.alert.enabled).length} alert{ops.alerts.length === 1 ? '' : 's'} watching, none firing</p>
       {/if}
     </section>
 
@@ -90,13 +90,13 @@
           {#each upcoming as t (t.task.id)}
             <li class="row">
               <span>⏰</span>
-              <span class="flex-1 min-w-0"><span class="block truncate">{t.task.name}</span><span class="block text-[11px] text-gray-400 truncate">{t.when} · next {ago(t.task.next_run)}</span></span>
+              <span class="flex-1 min-w-0"><span class="block truncate">{t.task.name}</span><span class="block tiny faint truncate">{t.when} · next {ago(t.task.next_run)}</span></span>
               <button class="mini" onclick={() => runNow('task', t.task.id, t.task.name)} title="Run now (approval rules still apply)">▶</button>
             </li>
           {/each}
         </ul>
       {:else}
-        <p class="text-xs text-gray-500">No scheduled tasks.</p>
+        <p class="small faint">No scheduled tasks.</p>
       {/if}
     </section>
 
@@ -107,7 +107,7 @@
           {#each automations as a (a.automation.id)}
             <li class="row">
               <span>🤖</span>
-              <span class="flex-1 min-w-0"><span class="block truncate">{a.automation.name}</span><span class="block text-[11px] text-gray-400 truncate">{a.trigger}</span></span>
+              <span class="flex-1 min-w-0"><span class="block truncate">{a.automation.name}</span><span class="block tiny faint truncate">{a.trigger}</span></span>
               <button class="mini" onclick={() => runNow('automation', a.automation.id, a.automation.name)} title="Run now (approval rules still apply)">▶</button>
             </li>
           {/each}
@@ -120,29 +120,30 @@
       {#if ops.activity.length}
         <ul class="space-y-1">
           {#each ops.activity.slice(0, 12) as ev, i (ev.ts + i)}
-            <li class="flex gap-2 text-xs">
+            <li class="flex gap-2 small">
               <span class={ev.ok ? 'text-green-400' : 'text-red-400'}>{ev.ok ? '✓' : '✗'}</span>
               <!-- Summaries can include command output: plain text only. -->
-              <span class="flex-1 min-w-0"><span class="text-gray-200">{ev.name}</span> <span class="text-gray-400 break-words">{ev.summary}</span></span>
-              <span class="text-gray-500 shrink-0">{ago(ev.ts)}</span>
+              <span class="flex-1 min-w-0"><span class="body">{ev.name}</span> <span class="dim break-words">{ev.summary}</span></span>
+              <span class="faint shrink-0">{ago(ev.ts)}</span>
             </li>
           {/each}
         </ul>
       {:else}
-        <p class="text-xs text-gray-500">Nothing has run yet.</p>
+        <p class="small faint">Nothing has run yet.</p>
       {/if}
     </section>
 
-    <button class="text-xs text-cosmic-cyan hover:underline" onclick={onOpenRules}>Manage alerts, automations and schedules →</button>
+    <button class="small accent hover:underline" onclick={onOpenRules}>Manage alerts, automations and schedules →</button>
   {/if}
 </div>
 
 <style>
   .head {
-    font-size: 0.72rem;
+    font-size: 0.76em;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: rgb(156 163 175);
+    letter-spacing: 0.07em;
+    color: var(--text-dim, #c3cad6);
     margin-bottom: 0.35rem;
   }
   .row {
@@ -158,9 +159,15 @@
     padding: 0.1rem 0.45rem;
     border-radius: 6px;
     background: rgba(255, 255, 255, 0.06);
-    font-size: 0.75rem;
+    font-size: 0.85em;
   }
   .mini:hover {
     background: rgba(255, 255, 255, 0.14);
   }
+  .small { font-size: 0.86em; }
+  .tiny { font-size: 0.8em; }
+  .body { color: var(--text, #eef1f6); }
+  .dim { color: var(--text-dim, #c3cad6); }
+  .faint { color: var(--text-faint, #9aa3b4); }
+  .accent { color: var(--accent, #22d3ee); }
 </style>

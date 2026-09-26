@@ -266,6 +266,68 @@ pub async fn index_document(
     })
 }
 
+/// Knowledge base that workspace notes are synced into.
+const NOTES_KB: &str = "notes";
+/// Largest note that can be synced, in bytes (the notepad keeps up to
+/// 200 000 characters).
+const MAX_NOTE_BYTES: usize = 800_000;
+
+/// kb-core document name for a workspace note. The id comes from the
+/// webview, so it is limited to a short alphanumeric token, and the `::`
+/// prefix can't occur in the `folder/relative/path` names of watched files:
+/// syncing a note can never replace a document it doesn't own.
+fn note_doc_name(id: &str) -> AppResult<String> {
+    if id.is_empty() || id.len() > 40 || !id.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return Err(AppError::InvalidInput("invalid note id".into()));
+    }
+    Ok(format!("omnix-notepad::{id}.md"))
+}
+
+/// Keep a workspace note indexed in kb-core (the `notes` knowledge base) so
+/// recall and search find it. Re-syncing replaces the previous version, and
+/// kb-core only re-embeds the chunks that changed. Returns `{id, chunks}`.
+#[tauri::command]
+pub async fn sync_note(
+    state: State<'_, AppState>,
+    id: String,
+    content: String,
+) -> AppResult<Value> {
+    let name = note_doc_name(&id)?;
+    if content.trim().is_empty() || content.len() > MAX_NOTE_BYTES {
+        return Err(AppError::InvalidInput(
+            "a synced note must have text and be under 800 KB".into(),
+        ));
+    }
+    let store = memory::require(&state).await?;
+    let receipt = store.index_document_in(&name, &content, NOTES_KB).await?;
+    tracing::info!(note = %id, chunks = receipt.chunks, "note synced to kb-core");
+    Ok(json!({ "id": receipt.id, "chunks": receipt.chunks }))
+}
+
+/// Stop syncing a note: remove its document from kb-core. Looked up by name,
+/// so only the note's own document can be removed this way.
+#[tauri::command]
+pub async fn unsync_note(state: State<'_, AppState>, id: String) -> AppResult<bool> {
+    let name = note_doc_name(&id)?;
+    let store = memory::require(&state).await?;
+    let doc = store
+        .list_documents()
+        .await?
+        .into_iter()
+        .find(|d| d.get("name").and_then(Value::as_str) == Some(name.as_str()));
+    match doc
+        .as_ref()
+        .and_then(|d| d.get("id"))
+        .and_then(Value::as_str)
+    {
+        Some(doc_id) => {
+            store.delete_document(doc_id).await?;
+            Ok(true)
+        }
+        None => Ok(false),
+    }
+}
+
 /// Remove an indexed document (and its chunks) from kb-core.
 #[tauri::command]
 pub async fn delete_document(state: State<'_, AppState>, id: String) -> AppResult<()> {
@@ -495,6 +557,17 @@ mod tests {
         );
         assert!(ok(json!({"importance": 11})).is_err());
         assert!(ok(json!({"vec": [0.1]})).is_err());
+    }
+
+    #[test]
+    fn note_names_are_confined() {
+        assert_eq!(
+            note_doc_name("nabc123").expect("ok"),
+            "omnix-notepad::nabc123.md"
+        );
+        for bad in ["", "../x", "a/b", "a.md", "n x", &"a".repeat(41)] {
+            assert!(note_doc_name(bad).is_err(), "{bad:?} must be rejected");
+        }
     }
 
     #[test]

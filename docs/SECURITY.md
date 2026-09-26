@@ -325,6 +325,32 @@ two memory tools (`search_memory`, `remember`).
   DOMPurify path as chat. A side task that starts with `/` goes to
   `process_command`, the same guarded path as typing it in chat.
 
+* **Notepad and clips** live in webview `localStorage` (like pins), on this
+  computer only. The Markdown preview goes through `renderMarkdown`
+  (DOMPurify): notes often hold pasted model output. Clips record only what
+  OMNIX's own Copy buttons copied; the system clipboard is read only when the
+  user clicks **Paste from clipboard**, and no clipboard plugin permission is
+  granted. **🔗 Keep in memory** (`sync_note` / `unsync_note`) indexes a note
+  into kb-core's `notes` knowledge base. The webview supplies only a short
+  alphanumeric note id, and the backend builds the document name
+  `omnix-notepad::<id>.md`, a form watched-folder documents
+  (`folder/relative/path`) can't take, so the webview can't use it to
+  overwrite or delete another document. Synced notes come back through recall
+  labelled as external documents, like any indexed file.
+* **Command palette** memory search uses `semantic_search`; results are shown
+  and handed on as plain text only (chat box or notepad), never as HTML or
+  instructions.
+* **`kb-core mcp`** (MCP server for other AI tools) is a separate stdio
+  process the user starts from an MCP client; it opens no port and talks only
+  to the kb-core HTTP API (bearer token supported). Scope is mandatory
+  (`--collections`, or `--all` with `--exclude`), enforced in the server's
+  request and again on every hit; it is read-only unless `--allow-write`;
+  searches don't count as recall; and memories it writes carry
+  `source: "mcp"`, labelled "saved by an external AI tool, not verified by the
+  user" when OMNIX recalls them. Whatever it returns reaches the client's
+  model: with a cloud model, that data leaves the machine, so knowledge bases
+  with PHI must stay out of scope.
+
 ## 10. MCP servers
 
 * Settings → **MCP Servers** registers stdio (local process) or streamable

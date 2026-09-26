@@ -34,7 +34,8 @@
 | Model manager: installed and loaded Ollama models, load/unload, download with progress, delete | ✅ |
 | Agent host tools: `host_status`, `host_control`, `create_schedule`, `create_alert` | ✅ every change confirmed natively |
 | `/monitor` and process list with ending a process | ✅ |
-| Workspace dock beside the chat: live metrics, **parallel side tasks** (tool-less AI jobs that never block the chat), prompt library, pinboard, ops feed with Run now, one-click situation brief | ✅ |
+| Workspace dock beside the chat: smooth live metrics, **parallel side tasks** (tool-less AI jobs that never block the chat), prompt library, pinboard, ops feed with Run now, one-click situation brief, resizable **Markdown notepad** with clipboard history and 🔗 notes kept in memory, display settings (text size, accent, avatar size, dock width) | ✅ |
+| **Command palette** (Ctrl+K): views, actions, notes, prompts, commands and live memory search in one box | ✅ |
 | Launch at login (Settings → General) | ✅ |
 | API keys stored in the OS keychain | ✅ |
 | Hash-chained, redacted audit log with a **Verify** button | ✅ |
@@ -43,7 +44,7 @@
 | Cloud providers (Anthropic, OpenAI, Gemini, xAI) with streaming + tools | ✅ when local-only mode is turned off; keys in the OS keychain |
 | Voice: push-to-talk speech input via a faster-whisper server (Speaches), read-aloud via local Piper | ✅ when configured (Settings → Voice); hold or tap the mic, or hold Ctrl+Space; built-in mic test |
 | JARVIS-style holographic avatar: 13 mood colours, alert halos (offline, high load, blocked, connection issue), tool-call satellites, in-app colour key | ✅ |
-| Long-term memory ([kb-core](kb-core/README.md)): automatic recall before each reply, `remember` tool, optional fact capture, conversation archive, duplicate merging and contradiction handling (local LLM, optionally cross-checked by an NLI model), recall feedback, optional encryption at rest, hybrid keyword + semantic search over memories, notes, PDFs and code in live-synced folders, **knowledge bases**, analytics, export/import, Prometheus metrics | ✅ installed by `bootstrap.sh` / `./scripts/setup-memory.sh` ([contract](docs/kb-core-contract.md)) |
+| Long-term memory ([kb-core](kb-core/README.md)): automatic recall before each reply, `remember` tool, optional fact capture, conversation archive, duplicate merging and contradiction handling (local LLM, optionally cross-checked by an NLI model), recall feedback, optional encryption at rest, hybrid keyword + semantic search over memories, notes, PDFs and code in live-synced folders, **knowledge bases**, analytics, export/import, Prometheus metrics, **MCP server** (`kb-core mcp`, scoped, read-only by default) for Claude Code and other MCP clients | ✅ installed by `bootstrap.sh` / `./scripts/setup-memory.sh` ([contract](docs/kb-core-contract.md)) |
 | Google: Gmail (search, read, drafts), Drive (search, read, upload), Google developer docs lookup | ✅ off by default; Settings → Google; needs local-only mode off and your own OAuth client |
 | MCP servers (stdio or HTTP) as extra AI tools, every call policy-gated and audited | ✅ Settings → MCP Servers |
 | Phone: alerts, rules and reports can **text or call your phone** (Twilio, outbound only, rate-limited, audited) | ✅ off by default; Settings → Phone |

@@ -195,7 +195,10 @@ sequenceDiagram
 src/                         SvelteKit frontend
   lib/api.ts                 typed invoke wrapper, NOT_IMPLEMENTED set
   lib/types.ts               TypeScript mirrors of Rust IPC types
-  lib/components/            views + SecretField
+  lib/components/            views + SecretField, CommandPalette (Ctrl+K)
+  lib/components/workspace/  Workspace dock: LiveMetrics (+ LiveSpark), Notepad, ActivityPanel
+  lib/notepad.ts, display.ts notes/clips and display preferences (localStorage)
+  lib/sparkline.ts, palette.ts  curve geometry, palette ranking
   routes/+page.svelte        shell, chat, navigation
 src-tauri/
   src/lib.rs                 builder, plugins, command registration
@@ -218,6 +221,7 @@ src-tauri/
 kb-core/                     local long-term memory service (Python; see kb-core/README.md)
   kb_core/store.py           engine: SQLite + FTS5 + vector index, hybrid search, consolidation
   kb_core/server.py          HTTP API + browser/CSRF guards
+  kb_core/mcp.py             `kb-core mcp`: MCP server on stdio (scoped, read-only by default)
   kb_core/sync.py            live folder sync
   tests/                     offline unit tests
 scripts/                     bootstrap.sh, doctor.sh, setup-memory.sh
