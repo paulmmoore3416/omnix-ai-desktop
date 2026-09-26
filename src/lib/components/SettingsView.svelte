@@ -616,6 +616,32 @@
                 <input id="phone-max" type="number" min="1" max="60" bind:value={settings.phone.max_per_hour} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
                 <p class="text-xs text-gray-400 mt-1">Stops a flapping alert from running up a bill. Numbers use international format: + and country code.</p>
               </div>
+              <h4 class="text-sm font-bold text-cosmic-cyan pt-2">Heads-ups</h4>
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Call for critical alerts, text for the rest <span class="block text-xs text-gray-400 font-normal">Applies to alerts where you didn't choose a phone option. Critical: temperature and disk.</span></span>
+                <input type="checkbox" bind:checked={settings.phone.alerts_by_severity} class="w-5 h-5" />
+              </label>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label for="phone-approval" class="block text-sm font-medium mb-2">Approval waiting (seconds)</label>
+                  <input id="phone-approval" type="number" min="0" max="600" bind:value={settings.phone.approval_wait_secs} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+                  {#if settings.phone.approval_wait_secs > 0 && settings.phone.approval_wait_secs >= settings.security.confirmation_timeout_secs}
+                    <p class="text-xs text-yellow-300 mt-1">Approval pop-ups close after {settings.security.confirmation_timeout_secs} s, so this never fires. Raise the timeout in Security (up to 600 s).</p>
+                  {:else}
+                    <p class="text-xs text-gray-400 mt-1">Text me when an approval pop-up is still open this long (0 = off). No details are sent.</p>
+                  {/if}
+                </div>
+                <div>
+                  <label for="phone-jobs" class="block text-sm font-medium mb-2">Long jobs (minutes)</label>
+                  <input id="phone-jobs" type="number" min="0" max="1440" bind:value={settings.phone.long_job_minutes} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+                  <p class="text-xs text-gray-400 mt-1">Text me when a model download, or a rule's command or report, took at least this long (0 = off).</p>
+                </div>
+                <div>
+                  <label for="phone-down" class="block text-sm font-medium mb-2">Service down (minutes)</label>
+                  <input id="phone-down" type="number" min="0" max="1440" bind:value={settings.phone.service_down_minutes} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+                  <p class="text-xs text-gray-400 mt-1">Text me when Ollama or the memory service has been unreachable this long, and when it's back (0 = off).</p>
+                </div>
+              </div>
             </div>
           </div>
 

@@ -93,6 +93,10 @@ export interface Settings {
     from_number: string;
     to_number: string;
     max_per_hour: number;
+    approval_wait_secs: number;
+    long_job_minutes: number;
+    alerts_by_severity: boolean;
+    service_down_minutes: number;
   };
 }
 

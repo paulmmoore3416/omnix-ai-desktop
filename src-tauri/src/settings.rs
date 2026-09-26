@@ -83,6 +83,18 @@ pub struct PhoneSettings {
     /// Cap on texts + calls per rolling hour, so a flapping alert or a
     /// runaway rule cannot run up a bill (1–60).
     pub max_per_hour: u32,
+    /// Text when an approval dialog has waited this many seconds unanswered
+    /// (0 = off). Only useful below `security.confirmation_timeout_secs`.
+    pub approval_wait_secs: u32,
+    /// Text when a model download or a rule's command/report took at least
+    /// this many minutes (0 = off).
+    pub long_job_minutes: u32,
+    /// Alerts without their own phone choice: call for critical ones
+    /// (temperature, disk), text for the rest.
+    pub alerts_by_severity: bool,
+    /// Text when Ollama or kb-core has been unreachable this many minutes,
+    /// and again when it is back (0 = off).
+    pub service_down_minutes: u32,
 }
 
 impl Default for PhoneSettings {
@@ -93,6 +105,10 @@ impl Default for PhoneSettings {
             from_number: String::new(),
             to_number: String::new(),
             max_per_hour: 10,
+            approval_wait_secs: 60,
+            long_job_minutes: 5,
+            alerts_by_severity: true,
+            service_down_minutes: 10,
         }
     }
 }
@@ -518,6 +534,12 @@ impl Settings {
         }
         if !(1..=60).contains(&ph.max_per_hour) {
             return bad("phone.max_per_hour must be between 1 and 60");
+        }
+        if ph.approval_wait_secs > 600
+            || ph.long_job_minutes > 1440
+            || ph.service_down_minutes > 1440
+        {
+            return bad("phone wait times: approvals ≤ 600 s, jobs and services ≤ 1440 min");
         }
         if !(0.0..=1.0).contains(&self.memory.recall_min_score) {
             return bad("memory.recall_min_score must be between 0 and 1");

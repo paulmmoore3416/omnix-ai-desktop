@@ -520,6 +520,17 @@ morning briefing by text). A call reads the message aloud twice. OMNIX only ever
 takes instructions by text. Messages go through Twilio, so keep sensitive details out of them. The per-hour limit
 stops a flapping alert from running up a bill.
 
+**Heads-ups** (Settings → Phone, all on once the phone is on):
+- **Critical alerts call, the rest text.** For alerts where you didn't pick a phone option, OMNIX calls you for
+  temperature and disk alerts and texts you for everything else.
+- **Approval waiting.** If an approval pop-up is still open after a minute, you get a text (without details) so you
+  can get back to the desk. Pop-ups close after 60 seconds by default, so raise **Security → confirmation timeout**
+  (up to 10 minutes) to make this useful.
+- **Long jobs.** A model download or an automation/schedule command or report that took 5 minutes or more texts
+  you when it ends, with the result.
+- **Service down.** If Ollama or the memory service has been unreachable for 10 minutes, you get one text, and
+  another when it's back.
+
 **Ask in chat.** You don't need the tabs for most of this. Try:
 
 - *"How are my GPUs doing?"* or *"What's using the most memory?"*

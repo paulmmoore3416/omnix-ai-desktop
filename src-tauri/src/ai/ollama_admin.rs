@@ -439,6 +439,15 @@ pub async fn pull<R: Runtime>(
     };
     let t = Instant::now();
     let r = pull_stream(state, model, progress).await;
+    let long = u64::from(state.settings.read().await.phone.long_job_minutes);
+    if long > 0 && t.elapsed() >= std::time::Duration::from_secs(long * 60) {
+        let mins = t.elapsed().as_secs() / 60;
+        let text = match &r {
+            Ok(()) => format!("✓ Model {model} finished downloading ({mins} min)."),
+            Err(e) => format!("✗ Model {model} download failed after {mins} min: {e}"),
+        };
+        crate::phone::spawn_text(app, text, format!("model download {model}"));
+    }
     state
         .audit
         .record(record(

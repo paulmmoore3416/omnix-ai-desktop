@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Phone heads-ups (Settings → Phone): a text when an approval dialog is still open after `approval_wait_secs`
+  (no details); a text when a model download or a rule's command/report ran at least `long_job_minutes`; alerts
+  without their own phone choice call for critical ones and text for the rest (`alerts_by_severity`); a text when
+  Ollama or kb-core has been down for `service_down_minutes`, and when it is back.
+
+### Added
 - **Texts and calls to your phone** through Twilio (Settings → Phone, off by default). Alerts can text or call you
   when they fire. Automations and schedules gain **Text my phone** and **Call my phone** actions, and an AI report
   can be texted (a new quick-add preset sends the weekday morning briefing by text). The agent's schedule and alert

@@ -200,7 +200,9 @@ Default **on**. Enforced in Rust (`ai::endpoint`):
   keychain, sends are capped per hour and every attempt is audited
   (`phone_sms`, `phone_call`). The phone is outbound only: nothing is accepted
   by SMS or call (caller ID can be spoofed), so there is no listener. Call text
-  is XML-escaped so it cannot add TwiML verbs. Off by default.
+  is XML-escaped so it cannot add TwiML verbs. Off by default. The
+  "approval waiting" heads-up carries no request details (the dialog itself
+  stays on the desk screen and still defaults to deny).
 
 **Healthcare networks:** keep `local_only` on. It prevents prompts, which may
 contain PHI, from being sent to third-party services. Residual risk: DNS

@@ -135,6 +135,7 @@ async fn tick_once<R: TauriRuntime>(
 
     // 2. Probes (only if a rule needs them, at most every 30 s).
     refresh_probes(state, &rules).await;
+    watch_services(state).await;
     let procs_needed = rules.automations.iter().any(|a| {
         a.enabled && matches!(a.trigger, Trigger::ProcessStart { .. } | Trigger::ProcessStop { .. })
     }) || rules.alerts.iter().any(|a| a.enabled && a.condition.metric == Metric::ProcessMissing)
@@ -213,7 +214,21 @@ async fn tick_once<R: TauriRuntime>(
                 if alert.notify {
                     notify(app, &format!("⚠ {}", alert.name), &summary);
                 }
-                if let Some(channel) = alert.phone {
+                // An alert's own choice wins; otherwise, with
+                // `phone.alerts_by_severity`, call for critical and text for
+                // the rest (only while the phone is enabled).
+                let by_severity = {
+                    let s = state.settings.read().await;
+                    s.phone.enabled && s.phone.alerts_by_severity
+                };
+                let channel = alert
+                    .phone
+                    .or(by_severity.then_some(if level == "critical" {
+                        crate::phone::PhoneChannel::Call
+                    } else {
+                        crate::phone::PhoneChannel::Sms
+                    }));
+                if let Some(channel) = channel {
                     let app = app.clone();
                     let (name, text) = (alert.name.clone(), format!("⚠ {}: {summary}", alert.name));
                     tauri::async_runtime::spawn(async move {
@@ -355,6 +370,56 @@ async fn tick_once<R: TauriRuntime>(
         }
     }
     Ok(())
+}
+
+/// `phone.service_down_minutes`: text when Ollama or kb-core has been
+/// unreachable that long, and again when it is back. Probes at most once a
+/// minute, independently of any alert rules.
+async fn watch_services(state: &AppState) {
+    let (on, minutes, memory_on) = {
+        let s = state.settings.read().await;
+        (
+            s.phone.enabled,
+            s.phone.service_down_minutes,
+            !s.memory.backend_url.trim().is_empty(),
+        )
+    };
+    let now = Instant::now();
+    if !on || minutes == 0 || !state.phone_watch.due(now) {
+        return;
+    }
+    let threshold = Duration::from_secs(u64::from(minutes) * 60);
+    let mut checks = vec![(
+        "Ollama",
+        crate::ai::ollama_admin::loaded(state).await.is_ok(),
+    )];
+    if memory_on {
+        let up = match crate::memory::from_state(state).await {
+            Ok(Some(store)) => store.health().await.is_ok(),
+            _ => false,
+        };
+        checks.push(("the memory service (kb-core)", up));
+    }
+    for (name, up) in checks {
+        let text = match state.phone_watch.observe(name, up, now, threshold) {
+            Some(crate::phone::DownEvent::Down) => {
+                format!("⚠ {name} has been unreachable for {minutes} min.")
+            }
+            Some(crate::phone::DownEvent::Recovered) => format!("✓ {name} is reachable again."),
+            None => continue,
+        };
+        if let Err(e) = crate::phone::send(
+            state,
+            crate::phone::PhoneChannel::Sms,
+            &text,
+            "service watch",
+            Source::User,
+        )
+        .await
+        {
+            tracing::warn!(error = %e, "service heads-up not sent");
+        }
+    }
 }
 
 /// Probe services/containers/Ollama/kb-core when a rule needs them.
@@ -544,7 +609,25 @@ pub fn spawn_run<R: TauriRuntime>(
             return;
         };
         let started = now_rfc();
+        let t = Instant::now();
         let (ok, summary, detail) = run_action(&app, &state, &id, &name, &action).await;
+        // `phone.long_job_minutes`: say when a long command or report ends.
+        let long = u64::from(state.settings.read().await.phone.long_job_minutes);
+        if long > 0
+            && matches!(action, Action::Command { .. } | Action::AiReport { .. })
+            && t.elapsed() >= Duration::from_secs(long * 60)
+        {
+            let head: String = summary.chars().take(300).collect();
+            crate::phone::spawn_text(
+                &app,
+                format!(
+                    "{} “{name}” finished after {} min: {head}",
+                    if ok { "✓" } else { "✗" },
+                    t.elapsed().as_secs() / 60
+                ),
+                format!("long {kind} “{name}”"),
+            );
+        }
         let short: String = summary.chars().take(500).collect();
         let _ = state.ops.update(|f| {
             let run = match kind {

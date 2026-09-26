@@ -53,6 +53,8 @@ pub struct AppState {
     pub conversation_doc: Mutex<Option<String>>,
     /// Recent phone sends (`phone.max_per_hour`).
     pub phone_limit: crate::phone::RateLimiter,
+    /// Ollama / kb-core outage tracking (`phone.service_down_minutes`).
+    pub phone_watch: crate::phone::DownWatch,
 }
 
 impl AppState {
@@ -93,6 +95,7 @@ impl AppState {
             ops: crate::ops::OpsState::load(crate::ops::default_path()?),
             conversation_doc: Mutex::new(None),
             phone_limit: crate::phone::RateLimiter::default(),
+            phone_watch: crate::phone::DownWatch::default(),
         })
     }
 

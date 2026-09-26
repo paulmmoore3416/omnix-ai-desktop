@@ -403,6 +403,10 @@ File: `~/.config/omnix/settings.json`. Unknown fields are ignored and missing fi
 | `account_sid` | `""` | `AC` + 32 hex digits |
 | `from_number` / `to_number` | `""` | E.164 (`+` and country code). `to_number` is the only recipient |
 | `max_per_hour` | `10` | Texts + calls per rolling hour (1–60) |
+| `approval_wait_secs` | `60` | Text when a native approval dialog is still open after this long (0 = off, ≤ 600). Content-free. Only fires below `security.confirmation_timeout_secs` (default 60, so raise that to use it) |
+| `long_job_minutes` | `5` | Text when a model download, or a rule's command / AI report, took at least this long (0 = off) |
+| `alerts_by_severity` | `true` | Alerts with no `phone` of their own: call for critical (temperature, GPU temperature, disk), text for the rest |
+| `service_down_minutes` | `10` | Text when Ollama or kb-core has been unreachable this long, once per outage, and when it's back (0 = off). Probed once a minute, independent of alert rules |
 
 The Twilio auth token is in the keychain as `twilio`.
 

@@ -74,6 +74,104 @@ impl RateLimiter {
     }
 }
 
+/// Whether the phone is on (for optional heads-ups that should be skipped
+/// quietly when it is off, rather than fail).
+pub async fn enabled(state: &AppState) -> bool {
+    state.settings.read().await.phone.enabled
+}
+
+/// Send a heads-up text in the background; failures are logged, never
+/// surfaced (the event it reports on already happened).
+pub fn spawn_text<R: tauri::Runtime>(app: &tauri::AppHandle<R>, text: String, reason: String) {
+    use tauri::Manager;
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        if !enabled(&state).await {
+            return;
+        }
+        if let Err(e) = send(&state, PhoneChannel::Sms, &text, &reason, Source::User).await {
+            tracing::warn!(error = %e, %reason, "phone heads-up not sent");
+        }
+    });
+}
+
+/// Text sent while an approval dialog is still open: deliberately without
+/// the request's details (they stay on the desk screen).
+pub fn approval_waiting_text(waited_secs: u64, left_secs: u64) -> String {
+    format!(
+        "An approval has been waiting at your desk for {} and will be denied automatically in {}.",
+        human_secs(waited_secs),
+        human_secs(left_secs)
+    )
+}
+
+fn human_secs(s: u64) -> String {
+    if s >= 120 {
+        format!("{} min", s / 60)
+    } else {
+        format!("{s} s")
+    }
+}
+
+/// Tracks how long Ollama / kb-core have been down, for
+/// `phone.service_down_minutes`.
+#[derive(Default)]
+pub struct DownWatch(std::sync::Mutex<DownState>);
+
+#[derive(Default)]
+struct DownState {
+    last_check: Option<Instant>,
+    /// name → (down since, heads-up sent)
+    down: std::collections::HashMap<&'static str, (Instant, bool)>,
+}
+
+/// What a service watch observation means for the phone.
+#[derive(Debug, PartialEq, Eq)]
+pub enum DownEvent {
+    /// Down for the whole threshold: text once.
+    Down,
+    /// Back after a heads-up was sent: text once.
+    Recovered,
+}
+
+impl DownWatch {
+    /// Whether it is time for another probe (at most once a minute).
+    pub fn due(&self, now: Instant) -> bool {
+        let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if s.last_check
+            .is_some_and(|t| now.duration_since(t) < Duration::from_secs(60))
+        {
+            return false;
+        }
+        s.last_check = Some(now);
+        true
+    }
+
+    /// Record one probe result.
+    pub fn observe(
+        &self,
+        name: &'static str,
+        up: bool,
+        now: Instant,
+        threshold: Duration,
+    ) -> Option<DownEvent> {
+        let mut s = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if up {
+            return match s.down.remove(name) {
+                Some((_, true)) => Some(DownEvent::Recovered),
+                _ => None,
+            };
+        }
+        let entry = s.down.entry(name).or_insert((now, false));
+        if !entry.1 && now.duration_since(entry.0) >= threshold {
+            entry.1 = true;
+            return Some(DownEvent::Down);
+        }
+        None
+    }
+}
+
 /// Send `text` to the owner's phone. `reason` says what triggered it (for
 /// the audit log). Returns Twilio's message or call SID.
 pub async fn send(
@@ -245,6 +343,41 @@ mod tests {
         );
         let long = "x".repeat(5_000);
         assert_eq!(sms_body(&long).chars().count(), MAX_SMS_CHARS);
+    }
+
+    #[test]
+    fn down_watch_texts_once_per_outage() {
+        let w = DownWatch::default();
+        let t0 = Instant::now();
+        let ten = Duration::from_secs(600);
+        assert_eq!(w.observe("ollama", false, t0, ten), None);
+        assert_eq!(
+            w.observe("ollama", false, t0 + Duration::from_secs(300), ten),
+            None
+        );
+        assert_eq!(
+            w.observe("ollama", false, t0 + ten, ten),
+            Some(DownEvent::Down)
+        );
+        assert_eq!(w.observe("ollama", false, t0 + ten * 2, ten), None);
+        assert_eq!(
+            w.observe("ollama", true, t0 + ten * 3, ten),
+            Some(DownEvent::Recovered)
+        );
+        // A blip shorter than the threshold says nothing either way.
+        assert_eq!(w.observe("ollama", false, t0 + ten * 4, ten), None);
+        assert_eq!(
+            w.observe("ollama", true, t0 + ten * 4 + Duration::from_secs(5), ten),
+            None
+        );
+    }
+
+    #[test]
+    fn approval_text_has_no_request_details() {
+        assert_eq!(
+            approval_waiting_text(60, 540),
+            "An approval has been waiting at your desk for 60 s and will be denied automatically in 9 min."
+        );
     }
 
     #[test]

@@ -96,7 +96,14 @@ pub async fn ask<R: Runtime>(
             let _ = tx.send(approved);
         });
 
-    match tokio::time::timeout(timeout, rx).await {
+    // `phone.approval_wait_secs`: text the owner if the dialog is still open
+    // after a while (no request details; see `phone::approval_waiting_text`).
+    let heads_up = phone_heads_up(app, timeout).await;
+    let answer = tokio::time::timeout(timeout, rx).await;
+    if let Some(h) = heads_up {
+        h.abort();
+    }
+    match answer {
         Ok(Ok(true)) => Confirmation::Approved,
         Ok(Ok(false)) | Ok(Err(_)) => Confirmation::Declined,
         Err(_) => {
@@ -104,6 +111,41 @@ pub async fn ask<R: Runtime>(
             Confirmation::TimedOut
         }
     }
+}
+
+/// Schedule the "approval waiting" text, if the phone is on and the wait is
+/// shorter than the dialog's timeout. Aborted as soon as the dialog closes.
+async fn phone_heads_up<R: Runtime>(
+    app: &AppHandle<R>,
+    timeout: Duration,
+) -> Option<tauri::async_runtime::JoinHandle<()>> {
+    use tauri::Manager;
+    let state = app.try_state::<crate::state::AppState>()?;
+    let (on, wait) = {
+        let s = state.settings.read().await;
+        (s.phone.enabled, u64::from(s.phone.approval_wait_secs))
+    };
+    if !on || wait == 0 || wait >= timeout.as_secs() {
+        return None;
+    }
+    let app = app.clone();
+    let left = timeout.as_secs() - wait;
+    Some(tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(wait)).await;
+        let state = app.state::<crate::state::AppState>();
+        let text = crate::phone::approval_waiting_text(wait, left);
+        if let Err(e) = crate::phone::send(
+            &state,
+            crate::phone::PhoneChannel::Sms,
+            &text,
+            "approval waiting",
+            Source::User,
+        )
+        .await
+        {
+            tracing::warn!(error = %e, "approval heads-up not sent");
+        }
+    }))
 }
 
 /// Ask with the configured timeout; `Ok(Approved)` only when the user
