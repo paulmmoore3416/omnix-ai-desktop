@@ -5,6 +5,7 @@ tells you how to install, verify, run, fix, and change it. Read it fully before 
 
 - `docs/SERVER_DEPLOYMENT.md`: install layouts, GPU layout, operations, troubleshooting table
 - `docs/ARCHITECTURE.md`: module map, sequence diagrams · `docs/SECURITY.md`: threat model (**read before touching `security/`**)
+- `docs/REMOTE_ACCESS.md`: proposed phone access design (not built; review it before adding any network listener)
 - `docs/USER_GUIDE.md`: what the user sees · `docs/PROJECT_OVERVIEW.md`: capabilities · `CHANGELOG.md`: history
 
 ---
