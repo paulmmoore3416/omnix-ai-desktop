@@ -7,6 +7,116 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### System Control, automation and host control
+
+**Added**
+- **GPU telemetry for every GPU**: sysfs discovery (vendor, driver, PCI slot) plus `nvidia-smi` for NVIDIA and
+  `amdgpu` sysfs counters for AMD. Includes load, VRAM, temperature, power, fan, clocks and per-process VRAM. On the
+  reference machine this surfaced the RX 570/580 (8 GB) that `nvidia-smi` can't see.
+- **Detailed host metrics** (per-core CPU, load average, frequency, per-disk, per-interface network, all sensors) and
+  a 1-hour metrics history with sparklines. The Performance tab replaces random bars and a hardcoded "85%" score.
+- **Agent and model metrics**: replies, errors, time to first token, tokens/s from Ollama's reported counts (new
+  `ChatEvent::Usage`), cold starts, per-tool calls/failures/latency, recall hit rate, facts learned.
+- **Services & Docker**: list systemd units (system + user) and containers; start/stop/restart/logs via the executor
+  (policy + native confirmation + audit; system units ask polkit).
+- **Model manager**: installed/loaded models with VRAM/RAM split, load/unload, download with progress, delete
+  (confirmed), "use for chat".
+- **Alerts, automations, scheduler** (`ops/`): sustained-condition alerts with desktop notifications
+  (`tauri-plugin-notification`, driven from Rust only); triggers → notify/command/AI report; cron schedules with
+  presets and a weekday "morning briefing"; activity feed; run now.
+- **Unattended command safety**: one-time native approval stored as HMAC-SHA256 over rule id, command and cwd, with
+  the key in an IPC-unreachable keychain entry. Commands are re-classified at every run and executed via
+  `executor::execute_preapproved` (never elevated; audited as `confirmation: pre_approved`). Privileged/denied
+  commands can't be scheduled; `ops.json` is protected from commands.
+- **Cleanup & Optimize**: allowlisted cache/trash cleanup (one confirmation, symlink-safe, audited), Docker prune
+  and journal vacuum through the executor; measured recommendations (models spilling to CPU, idle models, failed
+  services, full disks, heat, memory pressure, memory-store upkeep) with guarded one-click fixes.
+- **Agent host tools** `host_status`, `host_control`, `create_schedule`, `create_alert` (rules proposed by the model
+  always need a native confirmation).
+- **Conversation archive** (`memory.archive_conversations`, default on): user/assistant text (never tool output) is
+  saved to the `conversations` knowledge base, which auto-recall excludes.
+- **Knowledge bases**: kb-core collections exposed in OMNIX (create, delete with confirmation, file memories and
+  documents, search one or all).
+- kb-core 2.1: collections (schema v2 with automatic migration), growable/float16 vector index with O(1) removal,
+  per-thread read connections, query-embedding cache, `POST /documents/batch`, `GET /metrics` (Prometheus), PDF and
+  code/config indexing with code-aware chunking, `KB_CORE_WATCH=name=/path`, `kb-core collections`, `ingest -c`.
+
+**Fixed**
+- `kb-core export` wrote 0 records (the CLI read the HTTP response after it was closed); now tested end to end.
+
+**Changed**
+- `NOT_IMPLEMENTED` now holds only `test_integration`; the System Control "not yet available" banner is gone.
+
+### Documentation
+
+**Added**
+- `docs/TECHNICAL_REFERENCE.md`: runtime components and ports, file locations, backend module reference, every IPC
+  command, the chat event protocol, agent tools, memory integration, full settings reference with defaults, error
+  kinds, audit-log schema, kb-core internals (schema, retrieval and scoring formulas, activation, consolidation,
+  extraction, folder sync, HTTP guards), extension guide, test suites and measured performance.
+- `docs/articles/medium-omnix-kb-core.md`: a Medium article on OMNIX and kb-core, with publishing notes.
+- User Guide §11–13: the Knowledge view tab by tab, getting the most out of memory, and a privacy FAQ.
+- Project Overview: kb-core capabilities (§3.12) and "What makes OMNIX different" (§5).
+
+**Changed**
+- Project Overview, Showcase and README refreshed: kb-core is no longer described as PostgreSQL/pgvector, test counts
+  updated, export/import removed from the roadmap.
+- Docs synced with the current tree: test counts (144 Rust + 2 opt-in, 27 Vitest, 46 kb-core) and line counts in the
+  Project Overview, Showcase and article; Architecture module map and plugin table cover `system/*`, `ops/*`,
+  the model manager and the notification plugin; README architecture diagram, kb-core test command and public-repo
+  clone line; CONTRIBUTING lists the full quality gate. Showcase gains a System Control highlight.
+- `.gitignore` excludes Python bytecode (`__pycache__/`) and the local `itsme-knowledge-base/` test corpus (a
+  separate repository).
+
+### Long-term memory: kb-core 2 and OMNIX integration
+
+**Added**
+- `kb-core/`: a local long-term memory engine implementing `docs/kb-core-contract.md` plus extensions. It uses
+  standard-library Python (numpy optional), one SQLite file (mode 600) and Ollama embeddings.
+  - Hybrid retrieval: FTS5/BM25 plus exact dense vectors with a **calibrated 0–1 relevance** (lift over the query's
+    background similarity, self-calibrating per embedding model), exact-keyword coverage, and MMR diversity
+    (≤ 3 chunks per document).
+  - Personalised multi-query retrieval: first-person questions are also matched as "<owner>'s …" / "the user's …"
+    (doubles the similarity lift for third-person memories).
+  - Memory dynamics: activation from importance, recency (half-life), recall count and reinforcement; pinning.
+  - Consolidation: near-verbatim duplicates are reinforced instead of stored twice, and similar memories are linked.
+    The local LLM judges similar pairs as duplicate (merged) or obsolete (superseded, restorable). A calibration run
+    showed "prefers morning" vs "prefers afternoon" meetings at cosine 0.95, which is why contradictions are never
+    auto-merged on vectors.
+  - `POST /extract`: fact capture with JSON-schema output, with secrets filtered.
+  - Live folder sync (`KB_CORE_WATCH`): incremental re-index, and unchanged chunks keep their vectors.
+  - Resilience: writes succeed with the embedding model down (backfilled later); changing the model re-embeds in the
+    background.
+  - Extensions: `/stats`, `/documents` (list/get/delete), `PATCH /memories/{id}`, `/export`, `/import`,
+    `/maintenance`, `/sync`.
+  - Hardening: loopback by default, token required off-loopback, `Origin` rejected, JSON-only bodies, `Host` check,
+    no CORS, memory text never logged.
+  - `kb-core` CLI (`status`, `search`, `remember`, `extract`, `ingest`, `sync`, `export`, `import`, `maintenance`,
+    `migrate-legacy`). 36 offline unit tests run in CI with and without numpy.
+- OMNIX **auto-recall** (`memory.auto_recall`, default on): relevant memories and notes are added to that turn's
+  system prompt as untrusted data (limit/threshold configurable, 4 s timeout) and shown as a `memory_recall` step.
+- `remember` agent tool (audited as `memory_save`, tagged `source: assistant`).
+- **Learn from conversations** (`memory.auto_capture`, default off; turning it on requires native confirmation):
+  after each reply, facts from the user's message are captured in the background and reported as
+  "🧠 Remembered: …". Audited as `memory_capture`.
+- Knowledge view: real analytics (categories, sources, engine health, activity feed), document management and
+  watched folders, pin/unpin, memory provenance and activation, relevance scores in search.
+- Knowledge → **Export / Import / Optimize** now work. Export is written mode 600 to a path chosen in a native
+  dialog, and both directions are audited.
+- `scripts/setup-memory.sh`: venv install, env file, systemd user unit, one-time migration of kb-core 1.x memories,
+  `--lan` with a generated token, `kb-core` CLI. `bootstrap.sh` runs it (`--no-memory` to skip); `doctor.sh`
+  checks kb-core health, the embedding backlog, the learning model and watch-folder errors.
+
+**Changed**
+- `MemoryStore` gains optional extension methods (default `not_implemented`), so OMNIX still works with a
+  contract-only kb-core.
+- `search_memory` returns compact, source-labelled lines instead of raw JSON.
+
+**Fixed**
+- The Knowledge view's Analytics tab showed random numbers and invented activity ("2m ago"); it now shows real data
+  or says analytics are unavailable.
+- Settings → Memory described kb-core as PostgreSQL/pgvector on port 8000.
+
 ### One-command deployment and docs refresh
 
 **Added**

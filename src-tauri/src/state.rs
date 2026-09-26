@@ -42,6 +42,15 @@ pub struct AppState {
     pub chat_cancel: std::sync::atomic::AtomicBool,
     /// MCP server connections.
     pub mcp: crate::mcp::McpManager,
+    /// Agent and model metrics since start.
+    pub agent_metrics: crate::ai::metrics::AgentMetrics,
+    /// Rolling host metrics (filled by the ops engine).
+    pub history: Mutex<crate::system::history::History>,
+    /// Alerts, automations and scheduled tasks.
+    pub ops: crate::ops::OpsState,
+    /// Document name of the current conversation's archive (reset by
+    /// `chat_reset`).
+    pub conversation_doc: Mutex<Option<String>>,
 }
 
 impl AppState {
@@ -77,12 +86,20 @@ impl AppState {
             conversation: tokio::sync::Mutex::new(Vec::new()),
             chat_cancel: std::sync::atomic::AtomicBool::new(false),
             mcp: crate::mcp::McpManager::default(),
+            agent_metrics: crate::ai::metrics::AgentMetrics::default(),
+            history: Mutex::new(crate::system::history::History::default()),
+            ops: crate::ops::OpsState::load(crate::ops::default_path()?),
+            conversation_doc: Mutex::new(None),
         })
     }
 
     /// Files that executed commands may read but never modify.
     pub fn protected_paths(&self) -> Vec<String> {
-        let mut v = vec![self.settings_path.to_string_lossy().to_string()];
+        let mut v = vec![
+            self.settings_path.to_string_lossy().to_string(),
+            // Rules that can run commands unattended: never writable by commands.
+            self.ops.path().to_string_lossy().to_string(),
+        ];
         if let Some(dir) = self.audit.path().parent() {
             v.push(dir.to_string_lossy().to_string());
         }

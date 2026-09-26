@@ -14,7 +14,7 @@ use crate::security::policy::Source;
 use crate::state::AppState;
 use std::sync::atomic::Ordering;
 use tauri::ipc::Channel;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 /// Send a chat message to the configured model. Tokens, tool calls/results
 /// and notices stream over `on_event`; the returned future resolves when the
@@ -39,10 +39,58 @@ pub async fn chat_send(
             tracing::debug!(error = %e, "chat channel closed");
         }
     };
-    let result = agent::run_turn(&app, &state, message, &emit).await;
+    let result = agent::run_turn(&app, &state, message.clone(), &emit).await;
     if let Err(e) = &result {
         emit(UiEvent::Error {
             message: e.to_string(),
+        });
+    }
+    let (capture, archive) = {
+        let s = state.settings.read().await;
+        let on = !s.memory.backend_url.trim().is_empty();
+        (
+            s.memory.auto_capture && on,
+            s.memory.archive_conversations && on,
+        )
+    };
+    if result.is_ok() && archive {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let state = app.state::<AppState>();
+            if let Err(e) = agent::archive_conversation(&state).await {
+                tracing::debug!(error = %e, "conversation archive failed");
+            }
+        });
+    }
+    if result.is_ok() && capture && agent::worth_capturing(&message) {
+        // Runs after the reply is complete so it never delays it; results
+        // are reported as a note on the same reply.
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let state = app.state::<AppState>();
+            let note = match agent::capture_facts(&state, &message).await {
+                Ok(facts) => {
+                    state.agent_metrics.capture(
+                        facts
+                            .iter()
+                            .filter(|m| m.get("status").and_then(|s| s.as_str()) == Some("created"))
+                            .count(),
+                    );
+                    let new: Vec<&str> = facts
+                        .iter()
+                        .filter(|m| m.get("status").and_then(|s| s.as_str()) == Some("created"))
+                        .filter_map(|m| m.get("content").and_then(|c| c.as_str()))
+                        .collect();
+                    (!new.is_empty()).then(|| format!("🧠 Remembered: {}", new.join(" · ")))
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "fact capture failed");
+                    None
+                }
+            };
+            if let Some(message) = note {
+                let _ = on_event.send(UiEvent::Notice { message });
+            }
         });
     }
     result
@@ -63,6 +111,10 @@ pub async fn chat_reset(state: State<'_, AppState>) -> AppResult<()> {
         .try_lock()
         .map_err(|_| AppError::InvalidInput("a response is in progress; stop it first".into()))?
         .clear();
+    // The next conversation gets its own archive document.
+    if let Ok(mut doc) = state.conversation_doc.lock() {
+        *doc = None;
+    }
     Ok(())
 }
 

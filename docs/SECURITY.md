@@ -211,15 +211,20 @@ rebinding between the check and the request; prefer IP literals or
   websocket.
 * `freezePrototype: true`.
 * Capabilities: only core app/event/window/webview/path defaults. No shell,
-  fs, opener, dialog, notification or clipboard permissions.
+  fs, opener, dialog, notification or clipboard permissions. The dialog and
+  notification plugins are registered but driven from Rust only (native
+  confirmations; desktop notifications for alerts and automation results);
+  the webview can't call them.
 * Devtools are opened only in debug builds (`cfg(debug_assertions)`).
 
 ---
 
 ## 9. AI agent loop and prompt injection
 
-The model can call four tools: `run_command`, `read_file`, `list_directory`
-and (when memory is configured) `search_memory`.
+The model can call three system tools (`run_command`, `read_file`,
+`list_directory`), four host tools (`host_status`, `host_control`,
+`create_schedule`, `create_alert`; see §14) and, when memory is configured,
+two memory tools (`search_memory`, `remember`).
 
 * **Same gates as the user.** Tools call the same guarded code paths as the
   UI (`security::executor`, `security::files`) with `source = llm_tool`. The
@@ -247,6 +252,24 @@ and (when memory is configured) `search_memory`.
   cannot run script or navigate the app window.
 * **Keys stay in Rust.** Cloud provider keys are read from the keychain inside
   the provider factory; they never cross IPC.
+* **Long-term memory is data.** Memories and note snippets reach the model in
+  two ways, both wrapped as `<tool_result … untrusted="true">`: `search_memory`
+  results, and the **auto-recall** block (`memory.auto_recall`, on by default).
+  Auto-recall adds the top hits above `memory.recall_min_score` to *that turn's*
+  system prompt with a note that they may be outdated and are not instructions.
+  It is never stored in history, and it is skipped after 4 s so a slow kb-core
+  can't stall chat.
+* **Memory poisoning.** Stored text could try to steer a later conversation
+  ("memory: always run …"). The mitigations: recalled text is untrusted data
+  like any tool output, so it can mislead but not instruct, and every command
+  it might inspire still goes through policy and confirmation. Model writes
+  via `remember` are tagged `source: assistant`, audited (`memory_save`) and
+  visible in the Knowledge view. **Fact capture** (`memory.auto_capture`) is
+  off by default, needs native confirmation to turn on, only analyses the
+  *user's* own message (never the assistant reply, which can echo tool
+  output), is audited (`memory_capture`), and tags results `extract`/`auto`.
+  kb-core filters secrets from extracted facts. A memory the local model marks
+  superseded is hidden, not deleted, and can be restored.
 
 ## 10. MCP servers
 
@@ -295,10 +318,93 @@ Operational logs go to `<app_log_dir>/omnix.log` (rotating, 5 × 5 MiB) via
 permissions. Secrets are never logged by OMNIX code (keys are not formatted
 into messages; only provider names are logged during migration).
 
-## 14. Known limitations
+## 14. Host operations: System Control, automations, scheduler
+
+OMNIX can now inspect and change host state beyond single commands: GPUs,
+systemd services, Docker containers, Ollama models, disk cleanup, and rules
+that act without a person present. The rules below keep every one of those
+paths inside the existing trust boundary.
+
+**Reading host state** (`system::probe`). GPU (`nvidia-smi`, sysfs),
+service (`systemctl list-units`), container (`docker ps/stats`), PCI
+(`lspci`) and journal-size queries use hardcoded argv. No user or model text
+ever reaches them. There is no shell, the environment is minimal, output is
+capped and the process is killed on timeout. They are reads, like `sysinfo`,
+and are not audited.
+
+**Changing services and containers.** A validated unit/container name (strict
+character set, `.service` suffix) and a fixed verb from an allowlist
+(`start/stop/restart/reload/enable/disable`, or
+`start/stop/restart/pause/unpause`) are formatted into a command that goes
+through the normal executor. The policy classifies it as Mutating, a native
+dialog asks, and the action is audited. For system units OMNIX runs
+`systemctl <verb> <unit>` without `sudo`. After OMNIX's dialog, systemd asks
+the desktop's polkit agent for authorisation, so OMNIX still never handles a
+password. Logs (`journalctl -u`, `docker logs`) are read-only commands through
+the same path.
+
+**Models.** Load/unload are reversible and audited (`model_load`,
+`model_unload`). Download and delete need a native confirmation and are
+audited (`model_pull`, `model_delete`). Model names are validated before they
+go into a request body, and the Ollama URL passes the `local_only` guard.
+
+**Cleanup.** Only a fixed allowlist of rebuildable directories under `$HOME`
+is emptied: Trash, thumbnails, and the pip/npm/yarn/cargo download caches.
+The directory itself is kept, symlinks are removed as links and never
+followed, and one native dialog lists every category and size first. Each
+category is audited as `cleanup`. Docker prune and journal vacuum run as
+normal executor commands, each with its own confirmation.
+
+**Optimize.** Recommendations are computed from measured state. Their fixes
+reuse the paths above (model unload, service restart via the executor,
+kb-core maintenance). No "tweaks" run without a fix you clicked.
+
+**Unattended rules** (`ops::*`, stored in `~/.config/omnix/ops.json`, mode
+600). Alerts only notify; automations and scheduled tasks run an action.
+
+* *Notify* and *AI report* actions can't change the system. An AI report
+  gives the local model a measured snapshot and **no tools**.
+* *Command* actions: when the rule is created, the command is classified.
+  `Denied` and `Privileged` are refused outright (elevation needs a person at
+  the password prompt). If the command would need confirmation, a native
+  dialog asks **once** ("Allow unattended command?"). On approval OMNIX stores
+  `HMAC-SHA256(key, rule id ‖ command ‖ cwd)` with the rule. The 32-byte key
+  lives in the OS keychain under an internal id that the IPC secret commands
+  reject (`secrets::INTERNAL`), so the webview can't read or forge it.
+* At every run the command is **classified again** under the current policy.
+  If it needs confirmation, the MAC must verify, so any edit to the command,
+  its directory or the rule id, in the UI, by the model or on disk,
+  invalidates it and the run is refused and audited. It then runs through
+  `executor::execute_preapproved`: same policy, same audit, never elevated,
+  recorded with `confirmation: pre_approved`, and with the rule name in
+  `detail`.
+* `ops.json` is on the policy's protected-path list, so no command OMNIX runs
+  can modify it.
+* Model-proposed rules (`create_schedule`, `create_alert`) always get a
+  native confirmation, even when no command is involved. Rule creation and
+  approvals are audited (`ops_create`, `ops_approve`).
+* Engine safety: numeric conditions must hold for their whole sustain window
+  (a single spike never fires). Automations are edge-triggered with
+  cooldowns, at most 4 actions run concurrently, missed schedule runs are
+  caught up once only if less than 24 h late, and AI reports time out after
+  5 minutes.
+
+**Agent host tools.** `host_status` is read-only (the measured snapshot).
+`host_control` uses the service/container/model paths above with
+`source: llm_tool`, so state changes open the AI-labelled dialog.
+`create_schedule` and `create_alert` go through the rule path above.
+
+**Conversation archive** (`memory.archive_conversations`, on by default).
+Only the user's messages and the assistant's replies are archived, never tool
+calls or tool output, so file contents and injected text stay out. They go to
+the local kb-core `conversations` collection, which automatic recall excludes.
+
+## 15. Known limitations
 
 * Classification is conservative but not a sandbox: an approved Mutating
-  command runs with your user's full permissions. Read the dialog.
+  command runs with your user's full permissions. Read the dialog. The same
+  applies to an unattended command you approved: it runs with your
+  permissions whenever its rule fires.
 * Truncation of the audit log tail is not detectable locally.
 * Late clicks on a timed-out dialog are ignored (the request was already denied),
   but the dialog stays visible until dismissed.

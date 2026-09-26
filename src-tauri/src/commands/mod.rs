@@ -13,6 +13,8 @@ pub mod chat;
 pub mod exec;
 pub mod files;
 pub mod knowledge;
+pub mod models;
+pub mod ops;
 pub mod settings;
 pub mod system;
 pub mod voice;

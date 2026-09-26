@@ -17,6 +17,7 @@ pub mod error;
 pub mod mcp;
 pub mod memory;
 pub mod observability;
+pub mod ops;
 pub mod security;
 pub mod settings;
 pub mod state;
@@ -70,6 +71,9 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         // Dialogs are raised from Rust only; the webview has no dialog permissions.
         .plugin(tauri_plugin_dialog::init())
+        // Desktop notifications for alerts/automations, sent from Rust only;
+        // the webview has no notification permissions.
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
@@ -91,6 +95,8 @@ pub fn run() {
             }
             desktop::setup_shortcuts(app.handle());
             desktop::setup_microphone(app.handle());
+            // Metrics sampling, alerts, automations and the scheduler.
+            ops::engine::start(app.handle().clone());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let state = handle.state::<state::AppState>();
@@ -157,9 +163,14 @@ pub fn run() {
             commands::knowledge::get_knowledge_data,
             commands::knowledge::save_memory,
             commands::knowledge::delete_memory,
+            commands::knowledge::update_memory,
+            commands::knowledge::delete_document,
+            commands::knowledge::sync_knowledge_folders,
             commands::knowledge::semantic_search,
             commands::knowledge::index_document,
             commands::knowledge::create_knowledge_base,
+            commands::knowledge::list_knowledge_bases,
+            commands::knowledge::delete_knowledge_base,
             commands::knowledge::export_knowledge,
             commands::knowledge::import_knowledge,
             commands::knowledge::optimize_vector_db,
@@ -169,17 +180,35 @@ pub fn run() {
             commands::system::get_real_time_stats,
             commands::system::get_processes,
             commands::system::kill_process,
-            commands::system::get_system_control_data,
+            commands::system::get_performance,
+            commands::system::get_gpus,
+            commands::system::list_services,
             commands::system::toggle_service,
-            commands::system::create_automation,
-            commands::system::toggle_automation,
-            commands::system::delete_automation,
-            commands::system::create_scheduled_task,
-            commands::system::toggle_scheduled_task,
-            commands::system::create_alert,
-            commands::system::toggle_alert,
+            commands::system::service_logs,
+            commands::system::list_containers,
+            commands::system::control_container,
+            commands::system::container_logs,
+            commands::system::scan_cleanup,
             commands::system::run_system_cleanup,
             commands::system::optimize_system,
+            commands::system::apply_recommendation,
+            // Alerts, automations, scheduler
+            commands::ops::get_system_control_data,
+            commands::ops::create_alert,
+            commands::ops::create_automation,
+            commands::ops::create_scheduled_task,
+            commands::ops::toggle_alert,
+            commands::ops::toggle_automation,
+            commands::ops::toggle_scheduled_task,
+            commands::ops::delete_rule,
+            commands::ops::delete_automation,
+            commands::ops::run_rule_now,
+            // Model manager
+            commands::models::list_models_detail,
+            commands::models::model_load,
+            commands::models::model_unload,
+            commands::models::model_delete,
+            commands::models::model_pull,
             // Voice
             commands::voice::voice_transcribe,
             commands::voice::voice_speak,

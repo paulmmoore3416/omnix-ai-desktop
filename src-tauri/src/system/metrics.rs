@@ -78,6 +78,83 @@ pub struct RealTimeStats {
     pub temperature: Option<f32>,
 }
 
+/// One mounted local disk.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct DiskInfo {
+    /// Device name.
+    pub name: String,
+    /// Mount point.
+    pub mount: String,
+    /// File system type.
+    pub fs: String,
+    /// Total bytes.
+    pub total: u64,
+    /// Used bytes.
+    pub used: u64,
+    /// Removable media.
+    pub removable: bool,
+}
+
+/// Throughput of one network interface.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct NicStats {
+    /// Interface name.
+    pub name: String,
+    /// Received bytes/s.
+    pub rx: u64,
+    /// Transmitted bytes/s.
+    pub tx: u64,
+    /// Total received since boot.
+    pub total_rx: u64,
+    /// Total transmitted since boot.
+    pub total_tx: u64,
+}
+
+/// One temperature sensor.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct SensorReading {
+    /// Sensor label.
+    pub label: String,
+    /// °C.
+    pub temperature: f32,
+    /// Critical threshold °C, if known.
+    pub critical: Option<f32>,
+}
+
+/// Everything the Performance view shows about the host (GPUs are in
+/// [`super::gpu`]).
+#[derive(Debug, Clone, Serialize)]
+pub struct DetailedStats {
+    /// Global CPU %.
+    pub cpu: f32,
+    /// Per logical core %.
+    pub per_core: Vec<f32>,
+    /// Average current core frequency, MHz.
+    pub cpu_freq_mhz: Option<u64>,
+    /// 1/5/15-minute load average (Unix; zeros elsewhere).
+    pub load: [f64; 3],
+    /// RAM total/used/available, bytes.
+    pub memory_total: u64,
+    /// Used RAM.
+    pub memory_used: u64,
+    /// Available RAM (includes reclaimable cache).
+    pub memory_available: u64,
+    /// Swap total.
+    pub swap_total: u64,
+    /// Swap used.
+    pub swap_used: u64,
+    /// Local disks.
+    pub disks: Vec<DiskInfo>,
+    /// Per-interface throughput (non-loopback).
+    pub network: Vec<NicStats>,
+    /// Temperature sensors, hottest first.
+    pub sensors: Vec<SensorReading>,
+    /// Seconds since boot.
+    pub uptime: u64,
+    /// Process count.
+    pub processes: usize,
+}
+
 /// File systems that do not represent user storage (and would double-count
 /// or skew disk usage).
 const PSEUDO_FS: &[&str] = &[
@@ -95,6 +172,9 @@ pub struct Monitor {
     last_cpu: Option<Instant>,
     cpu_cache: f32,
     last_net: Instant,
+    /// Last per-interface sample, reused for ~1 s so two callers in quick
+    /// succession don't reset each other's rate window.
+    nics: Option<(Instant, Vec<NicStats>)>,
 }
 
 impl Default for Monitor {
@@ -118,6 +198,7 @@ impl Monitor {
             last_cpu: Some(Instant::now()),
             cpu_cache: 0.0,
             last_net: Instant::now(),
+            nics: None,
         }
     }
 
@@ -167,28 +248,121 @@ impl Monitor {
         (total > 0).then(|| percent(total.saturating_sub(avail), total))
     }
 
-    /// Bytes/s since the previous call, summed over non-loopback interfaces.
-    pub fn network_rate(&mut self) -> Option<NetworkStats> {
+    /// Per-interface rates since the previous sample (non-loopback).
+    pub fn nic_stats(&mut self) -> Option<Vec<NicStats>> {
+        if let Some((t, v)) = &self.nics {
+            if t.elapsed() < std::time::Duration::from_millis(1000) {
+                return Some(v.clone());
+            }
+        }
         let elapsed = self.last_net.elapsed().as_secs_f64();
         self.networks.refresh(true);
         self.last_net = Instant::now();
         if elapsed < 0.05 {
             return None;
         }
-        let (rx, tx) = self
+        let mut v: Vec<NicStats> = self
             .networks
             .list()
             .iter()
             .filter(|(name, _)| !is_loopback_iface(name))
-            .fold((0u64, 0u64), |(r, t), (_, n)| {
-                (
-                    r.saturating_add(n.received()),
-                    t.saturating_add(n.transmitted()),
-                )
-            });
-        Some(NetworkStats {
-            rx: (rx as f64 / elapsed) as u64,
-            tx: (tx as f64 / elapsed) as u64,
+            .map(|(name, n)| NicStats {
+                name: name.clone(),
+                rx: (n.received() as f64 / elapsed) as u64,
+                tx: (n.transmitted() as f64 / elapsed) as u64,
+                total_rx: n.total_received(),
+                total_tx: n.total_transmitted(),
+            })
+            .collect();
+        v.sort_by(|a, b| a.name.cmp(&b.name));
+        self.nics = Some((Instant::now(), v.clone()));
+        Some(v)
+    }
+
+    /// Bytes/s since the previous sample, summed over non-loopback interfaces.
+    pub fn network_rate(&mut self) -> Option<NetworkStats> {
+        self.nic_stats().map(|v| {
+            v.iter()
+                .fold(NetworkStats { rx: 0, tx: 0 }, |acc, n| NetworkStats {
+                    rx: acc.rx.saturating_add(n.rx),
+                    tx: acc.tx.saturating_add(n.tx),
+                })
+        })
+    }
+
+    /// Local disks (pseudo file systems skipped, one entry per device).
+    pub fn disks(&mut self) -> Vec<DiskInfo> {
+        self.disks.refresh(true);
+        let mut seen = HashSet::new();
+        self.disks
+            .list()
+            .iter()
+            .filter(|d| {
+                let fs = d.file_system().to_string_lossy().to_lowercase();
+                !PSEUDO_FS.contains(&fs.as_str()) && d.total_space() > 0
+            })
+            .filter(|d| seen.insert(d.name().to_os_string()))
+            .map(|d| DiskInfo {
+                name: d.name().to_string_lossy().to_string(),
+                mount: d.mount_point().to_string_lossy().to_string(),
+                fs: d.file_system().to_string_lossy().to_string(),
+                total: d.total_space(),
+                used: d.total_space().saturating_sub(d.available_space()),
+                removable: d.is_removable(),
+            })
+            .collect()
+    }
+
+    /// All finite temperature sensors, hottest first.
+    pub fn sensors(&mut self) -> Vec<SensorReading> {
+        self.components.refresh(true);
+        let mut v: Vec<SensorReading> = self
+            .components
+            .list()
+            .iter()
+            .filter_map(|c| {
+                let t = c.temperature().filter(|t| t.is_finite())?;
+                Some(SensorReading {
+                    label: c.label().to_string(),
+                    temperature: t,
+                    critical: c.critical().filter(|t| t.is_finite()),
+                })
+            })
+            .collect();
+        v.sort_by(|a, b| b.temperature.total_cmp(&a.temperature));
+        v
+    }
+
+    /// Full host snapshot for the Performance view.
+    pub fn detailed(&mut self) -> AppResult<DetailedStats> {
+        let cpu = self.cpu();
+        let per_core: Vec<f32> = self.sys.cpus().iter().map(|c| c.cpu_usage()).collect();
+        self.sys.refresh_cpu_frequency();
+        let freqs: Vec<u64> = self
+            .sys
+            .cpus()
+            .iter()
+            .map(|c| c.frequency())
+            .filter(|f| *f > 0)
+            .collect();
+        self.sys.refresh_memory();
+        let l = System::load_average();
+        Ok(DetailedStats {
+            cpu,
+            per_core,
+            cpu_freq_mhz: (!freqs.is_empty())
+                .then(|| freqs.iter().sum::<u64>() / freqs.len() as u64),
+            load: [l.one, l.five, l.fifteen],
+            memory_total: self.sys.total_memory(),
+            memory_used: self.sys.used_memory(),
+            memory_available: self.sys.available_memory(),
+            swap_total: self.sys.total_swap(),
+            swap_used: self.sys.used_swap(),
+            disks: self.disks(),
+            network: self.nic_stats().unwrap_or_default(),
+            sensors: self.sensors(),
+            uptime: System::uptime(),
+            processes: self.sys.processes().len(),
         })
     }
 

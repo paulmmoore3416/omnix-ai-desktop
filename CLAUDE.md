@@ -56,15 +56,17 @@ Target hardware (the owner's server): i7 12-core, 48 GB RAM, two NVIDIA GPUs (8 
 | Rust backend (trust boundary) | `src-tauri/src/`: `lib.rs` (builder), `state.rs`, `error.rs`, `settings.rs`, `commands/*` (thin IPC wrappers) |
 | Security | `src-tauri/src/security/`: `policy.rs` (risk tiers), `confirm.rs` (native dialogs), `executor.rs`, `elevation.rs`, `files.rs`, `audit.rs` (hash chain), `secrets.rs` (keychain) |
 | AI | `src-tauri/src/ai/`: `provider.rs` (trait), `ollama.rs`, `anthropic.rs`, `openai_compat.rs`, `agent.rs` (tool loop), `endpoint.rs` (local-only guard), `aiorc.rs` (scaffold) |
-| Integrations | `mcp.rs`, `voice.rs` (Speaches STT client, Piper TTS), `memory/kb_core.rs`, `observability.rs` (Loki), `desktop.rs` (tray, shortcuts) |
+| Integrations | `mcp.rs`, `voice.rs` (Speaches STT client, Piper TTS), `memory/kb_core.rs`, `observability.rs` (Loki), `desktop.rs` (tray, shortcuts), `ai/ollama_admin.rs` (model manager), `ai/metrics.rs` (agent/model metrics) |
+| Host control | `src-tauri/src/system/`: `metrics.rs`, `gpu.rs` (NVIDIA + AMD), `history.rs`, `probe.rs` (fixed-argv reads), `services.rs`, `docker.rs`, `cleanup.rs`, `advisor.rs`, `snapshot.rs` · `src-tauri/src/ops/`: alerts/automations/scheduler (`engine.rs`, `rules.rs`, `cron.rs`, `approval.rs` HMAC) |
 | Frontend | `src/routes/+page.svelte` (main UI, push-to-talk state machine), `src/lib/components/*`, `src/lib/voice.ts` (WAV capture), `src/lib/avatar.ts` (avatar colour system) |
 | Webview permissions | `src-tauri/capabilities/default.json`, CSP in `src-tauri/tauri.conf.json` |
 | Setup / health | `scripts/bootstrap.sh`, `scripts/doctor.sh` (Linux) · `scripts/setup.sh`, `scripts/setup.ps1` (macOS/Windows dev) |
 | CI | `.github/workflows/ci.yml`, `release.yml` |
-| User settings | `~/.config/omnix/settings.json` (no secrets, mode 600) |
+| User settings | `~/.config/omnix/settings.json` (no secrets, mode 600) · rules in `~/.config/omnix/ops.json` (mode 600, protected from commands) |
 | App + audit logs | `~/.local/share/com.paulmmoore.omnix/logs/` |
 | Piper venv + voices | `~/.local/share/omnix/` |
-| Services | `ollama.service` (+ drop-in `/etc/systemd/system/ollama.service.d/omnix.conf`), Docker container `omnix-speaches` on :8000 |
+| Memory service (kb-core) | source `kb-core/` (see its README) · installed to `~/.local/share/omnix/kb-core/` (app, venv, `memory.db`) · config `~/.config/omnix/kb-core.env` · CLI `kb-core` |
+| Services | `ollama.service` (+ drop-in `/etc/systemd/system/ollama.service.d/omnix.conf`), Docker container `omnix-speaches` on :8000, user unit `omnix-kb-core` on :8100 |
 
 ---
 
@@ -81,6 +83,7 @@ Start with `./scripts/doctor.sh`, then work down this list. Full table: `docs/SE
 | tts_voice not absolute / files missing | `jq .voice ~/.config/omnix/settings.json` | Re-run bootstrap (it fixes relative voice paths); both `.onnx` and `.onnx.json` must exist |
 | settings.json invalid | the file | Restore the newest `settings.json.bak-*` next to it |
 | no Secret Service | `gnome-keyring` running? | Only matters for cloud API keys |
+| kb-core not reachable / degraded | `kb-core status`, `journalctl --user -u omnix-kb-core -n 50` | `./scripts/setup-memory.sh` (idempotent); degraded = embedding model unreachable, so check `nomic-embed-text` in `ollama list` |
 
 App-level errors reach the UI as structured `AppError` values (`kind` field). The same events are in the app log and
 `audit.jsonl`. To debug the app itself, run `npm run tauri dev` from a desktop session and watch the terminal.
@@ -94,6 +97,7 @@ App-level errors reach the UI as structured `AppError` values (`kind` field). Th
 ```bash
 cd src-tauri && cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all && cd ..
 npm run check && npm test && npm run build
+(cd kb-core && python3 -m unittest discover -s tests -t .)
 ```
 
 Also `cargo audit` / `npm audit` when dependencies change. Don't silence warnings with `#[allow]` unless a comment
@@ -103,15 +107,18 @@ justifies it. Before adding or upgrading a crate or npm package, check the curre
 ### Security invariants: never break these
 
 1. **The webview is untrusted.** Don't add Tauri plugin permissions to `capabilities/default.json` (no shell, fs,
-   opener, dialog, clipboard, notification), don't loosen the CSP, and don't add a command that runs a shell string
-   from the frontend. All execution goes through `request_execution` → `security/policy.rs` → native confirm →
-   `executor.rs` → audit.
+   opener, dialog, clipboard, notification; the dialog and notification plugins are driven from Rust only), don't
+   loosen the CSP, and don't add a command that runs a shell string from the frontend. All execution goes through
+   `security/policy.rs` → native confirm → `executor.rs` → audit. Unattended runs (scheduler/automations) use
+   `executor::execute_preapproved` only after verifying the rule's HMAC approval (`ops/approval.rs`); never add
+   another path that skips confirmation. Host probes (`system/probe.rs`) take hardcoded argv only.
 2. **Built-in `Denied` rules can't be overridden** from settings. Add a test in `policy.rs` for every new rule or bypass.
 3. **Approval dialogs are native**, built from the parsed request, and default to deny.
 4. **Secrets live only in the OS keychain.** No IPC command returns a secret. Never write keys to `settings.json`,
    logs, the repo, or chat.
 5. **`local_only` defaults on** and is enforced in Rust (`ai/endpoint.rs`). New network endpoints must go through that guard.
-6. **`enable_sudo` defaults off.** Elevation only via pkexec with a confirmation dialog; OMNIX never handles passwords.
+6. **`enable_sudo` defaults off.** Elevation only via pkexec (or, for service control, systemd's own polkit prompt)
+   after an OMNIX confirmation dialog; never unattended; OMNIX never handles passwords.
 7. **Model output is data.** Tool results are wrapped as untrusted; rendered Markdown goes through DOMPurify (`src/lib/markdown.ts`).
 8. **No fake success.** Unbuilt features return `AppError::NotImplemented` and their UI controls are disabled.
 9. **No hardcoded model ids in app code.** Models are discovered from the provider at runtime. (The bootstrap
@@ -131,7 +138,8 @@ justifies it. Before adding or upgrading a crate or npm package, check the curre
 
 ## 5. Known limitations (don't "fix" these by faking them)
 
-- Services, automations, scheduler, alerts, cleanup: **planned**, and the UI controls are disabled on purpose.
+- Memory encryption at rest and the `/search` slash command: **planned**.
+- Privileged (sudo) commands never run unattended by design; approve them interactively.
 - AIORC backend: scaffold only (`--features aiorc`), waiting on its `.proto`.
 - Auto-update: off until release signing keys exist.
 - Voice needs a Speaches/faster-whisper server; read-aloud needs Piper with an absolute voice path.

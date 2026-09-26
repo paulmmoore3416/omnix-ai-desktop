@@ -22,7 +22,10 @@ describe('AppError helpers', () => {
   });
 
   it('knows which commands are unavailable', () => {
-    expect(unavailable('create_automation')).toBe(true);
+    expect(unavailable('test_integration')).toBe(true);
+    for (const built of ['create_automation', 'create_alert', 'create_scheduled_task', 'run_system_cleanup', 'optimize_system', 'toggle_service', 'create_knowledge_base']) {
+      expect(unavailable(built)).toBe(false);
+    }
     expect(unavailable('request_execution')).toBe(false);
     expect(unavailable('kill_process')).toBe(false);
   });

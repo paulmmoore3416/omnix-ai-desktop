@@ -44,6 +44,8 @@ flowchart TB
             openai["openai_compat<br/>OpenAI / xAI / Gemini"]
             endpoint["endpoint<br/>local_only guard"]
             ctx["context<br/>truncation"]
+            admin["ollama_admin<br/>model manager"]
+            aimetrics["metrics<br/>agent/model metrics"]
         end
 
         subgraph memory["memory/*"]
@@ -52,8 +54,15 @@ flowchart TB
         end
 
         subgraph system["system/*"]
-            metrics["metrics::Monitor"]
+            metrics["metrics::Monitor<br/>+ gpu, history"]
             processes["processes"]
+            probe["probe<br/>fixed-argv reads"]
+            hostctl["services, docker,<br/>cleanup, advisor"]
+        end
+
+        subgraph ops["ops/*"]
+            engine["engine<br/>alerts, automations, scheduler"]
+            approval["approval<br/>HMAC pre-approval"]
         end
 
         settings["settings<br/>settings.json (no secrets)"]
@@ -69,6 +78,14 @@ flowchart TB
         commands --> ai
         commands --> system
         commands --> desktop
+        commands --> ops
+        commands --> admin
+        hostctl --> executor
+        hostctl --> probe
+        engine --> metrics
+        engine --> approval
+        engine --> executor
+        agent --> aimetrics
         executor --> policy
         executor --> confirm
         executor --> elevation
@@ -185,18 +202,49 @@ src-tauri/
   src/commands/              IPC surface
   src/security/              policy, confirm, executor, elevation, files, audit, secrets
   src/ai/                    providers, agent loop, context, endpoint guard
-  src/memory/                MemoryStore + kb-core adapter
+  src/memory/                MemoryStore trait (core + optional extensions) + kb-core adapter
   src/mcp.rs                 MCP client (stdio + streamable HTTP), policy-gated tool calls
   src/voice.rs               faster-whisper STT client, Piper TTS
   src/observability.rs       optional Loki audit shipping
   src/desktop.rs             autostart, tray, global shortcut, microphone permissions
   tests/fixtures/            tiny MCP stdio server used by tests
-  src/system/                metrics, processes
+  src/system/                metrics, GPUs, history, probes, processes, services, docker, cleanup, advisor, snapshot
+  src/ops/                   alerts, automations, scheduler (engine, rules, cron, HMAC approvals)
   src/settings.rs            persisted configuration
   src/state.rs               AppState
   capabilities/default.json  least-privilege webview permissions
   tauri.conf.json            CSP, bundle config
-docs/                        SECURITY.md, ARCHITECTURE.md
+kb-core/                     local long-term memory service (Python; see kb-core/README.md)
+  kb_core/store.py           engine: SQLite + FTS5 + vector index, hybrid search, consolidation
+  kb_core/server.py          HTTP API + browser/CSRF guards
+  kb_core/sync.py            live folder sync
+  tests/                     offline unit tests
+scripts/                     bootstrap.sh, doctor.sh, setup-memory.sh
+docs/                        SECURITY.md, ARCHITECTURE.md, TECHNICAL_REFERENCE.md, USER_GUIDE.md,
+                             SERVER_DEPLOYMENT.md, PROJECT_OVERVIEW.md, kb-core-contract.md, articles/
+```
+
+## Long-term memory flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant A as agent.rs
+    participant K as kb-core
+    participant O as Ollama
+    U->>A: message
+    A->>K: POST /search {query, min_score} (auto-recall, ≤4 s)
+    K->>O: embed query + first-person rewrites
+    K-->>A: relevant memories / note chunks (calibrated 0–1)
+    A->>O: chat (recall block wrapped as untrusted data)
+    O-->>A: reply (+ optional search_memory / remember tool calls)
+    A-->>U: streamed reply
+    opt memory.auto_capture
+        A->>K: POST /extract {user text}
+        K->>O: JSON-schema fact extraction
+        K->>K: consolidate (merge / link / LLM judge → supersede)
+        A-->>U: "🧠 Remembered: …"
+    end
 ```
 
 ## Testing
@@ -222,6 +270,7 @@ docs/                        SECURITY.md, ARCHITECTURE.md
 | `autostart` | Launch at login from `general.auto_start` |
 | `log` | Rotating `omnix.log` (separate from the audit log) |
 | `dialog` | Native confirmations and file pickers (Rust-side only) |
+| `notification` | Desktop notifications for alerts and automations (Rust-side only) |
 | tray (`tauri` `tray-icon`) | Show/Quit menu; close-to-tray when `general.minimize_to_tray` |
 
 None of these grant permissions to the webview except core event listening

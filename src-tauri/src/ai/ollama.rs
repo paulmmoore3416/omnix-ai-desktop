@@ -3,7 +3,7 @@
 
 use crate::ai::provider::{
     parse_args, ChatEvent, ChatMessage, ChatOptions, ChatStream, LlmProvider, Role, StopReason,
-    ToolCall, ToolSpec,
+    ToolCall, ToolSpec, Usage,
 };
 use crate::ai::stream::{receiver_stream, LineBuffer};
 use crate::error::{AppError, AppResult};
@@ -125,6 +125,16 @@ fn parse_line(line: &str, saw_tools: &mut bool, out: &mut Vec<ChatEvent>) -> App
             Some("stop") | None => StopReason::EndTurn,
             Some(other) => StopReason::Other(other.to_string()),
         };
+        if v.get("eval_count").is_some() {
+            let ns_ms = |k: &str| v.get(k).and_then(Value::as_u64).map(|ns| ns / 1_000_000);
+            out.push(ChatEvent::Usage(Usage {
+                prompt_tokens: v.get("prompt_eval_count").and_then(Value::as_u64),
+                output_tokens: v.get("eval_count").and_then(Value::as_u64),
+                prompt_ms: ns_ms("prompt_eval_duration"),
+                generation_ms: ns_ms("eval_duration"),
+                load_ms: ns_ms("load_duration"),
+            }));
+        }
         out.push(ChatEvent::Done { stop, raw: None });
         return Ok(true);
     }
@@ -399,7 +409,7 @@ mod live {
             match ev.expect("event") {
                 ChatEvent::Token(t) => text.push_str(&t),
                 ChatEvent::Done { .. } => done = true,
-                ChatEvent::ToolCall(_) | ChatEvent::Notice(_) => {}
+                ChatEvent::ToolCall(_) | ChatEvent::Notice(_) | ChatEvent::Usage(_) => {}
             }
         }
         assert!(done, "stream must finish with Done");

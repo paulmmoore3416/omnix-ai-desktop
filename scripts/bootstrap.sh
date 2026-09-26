@@ -17,8 +17,9 @@
 #   5. Speaches (faster-whisper STT) in Docker with NVIDIA GPU access
 #   6. Piper TTS in a private venv + a downloaded voice
 #   7. ~/.config/omnix/settings.json seeded with the above
-#   8. Release build of OMNIX installed as a .deb (desktop entry + `omnix` binary)
-#   9. scripts/doctor.sh health check
+#   8. Long-term memory: the local kb-core service (scripts/setup-memory.sh)
+#   9. Release build of OMNIX installed as a .deb (desktop entry + `omnix` binary)
+#  10. scripts/doctor.sh health check
 #
 # NVIDIA drivers are NOT installed automatically (a driver install needs a
 # reboot and can break a working desktop). If `nvidia-smi` is missing the
@@ -31,6 +32,7 @@
 #                     OMNIX on other machines can use this server. Default is
 #                     127.0.0.1 only.
 #   --cpu             Allow running without an NVIDIA GPU (CPU Whisper image).
+#   --no-memory       Skip the long-term memory service (kb-core).
 #   --yes             Non-interactive (assume yes for apt prompts).
 #   -h | --help       Show this help.
 #
@@ -38,7 +40,8 @@
 #   OMNIX_CHAT_MODEL     default chat model            (default: qwen3:8b)
 #   OMNIX_EXTRA_MODELS   extra Ollama models to pull   (default: "qwen3:14b")
 #   OMNIX_STT_MODEL      Speaches/faster-whisper model (default: Systran/faster-distil-whisper-large-v3)
-#   OMNIX_STT_GPU        GPU index for Speaches        (default: the GPU with the least VRAM)
+#   OMNIX_STT_GPU        GPU index for Speaches, or "cpu" to keep the GPU free
+#                        for the LLM (default: the GPU with the least VRAM)
 #   OMNIX_PIPER_VOICE    Piper voice id                (default: en_US-lessac-medium)
 #   OMNIX_DATA_DIR       voices/venvs location         (default: ~/.local/share/omnix)
 # =============================================================================
@@ -55,6 +58,7 @@ SERVICES=1
 APP=1
 LAN=0
 ALLOW_CPU=0
+MEMORY=1
 APT_YES=""
 for arg in "$@"; do
   case "$arg" in
@@ -62,6 +66,7 @@ for arg in "$@"; do
     --no-services) SERVICES=0 ;;
     --lan) LAN=1 ;;
     --cpu) ALLOW_CPU=1 ;;
+    --no-memory) MEMORY=0 ;;
     --yes|-y) APT_YES="-y" ;;
     -h|--help) sed -n '2,50p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown option: $arg (see --help)"; exit 2 ;;
@@ -206,7 +211,7 @@ EOF
 
   GPU_ARGS=()
   SPEACHES_IMAGE="ghcr.io/speaches-ai/speaches:latest-cpu"
-  if ((GPU_COUNT > 0)); then
+  if ((GPU_COUNT > 0)) && [[ "$STT_GPU" != cpu ]]; then
     if ! have nvidia-ctk; then
       step "NVIDIA container toolkit"
       curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
@@ -289,6 +294,14 @@ EOF
   install -m 600 "$tmp" "$SETTINGS_FILE"
   rm -f "$tmp"
   ok "settings seeded (backup kept next to the file)"
+
+  # --- 8b. Long-term memory (kb-core) ----------------------------------------
+  if [[ $MEMORY == 1 ]]; then
+    step "Long-term memory (kb-core)"
+    MEM_ARGS=()
+    [[ $LAN == 1 ]] && MEM_ARGS+=(--lan)
+    "$REPO_DIR/scripts/setup-memory.sh" "${MEM_ARGS[@]}"
+  fi
 fi
 
 # --- 9. Build + install the app ---------------------------------------------

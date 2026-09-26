@@ -170,12 +170,59 @@ On each client: `./scripts/bootstrap.sh --no-services`, then in **Settings**:
 | Settings | `~/.config/omnix/settings.json` (no secrets; keys are in the OS keychain) |
 | Launch at login | Settings → General |
 
+### Long-term memory (kb-core)
+
+`bootstrap.sh` installs it (skip with `--no-memory`). It gives the assistant automatic recall, the `search_memory` and
+`remember` tools, optional fact capture, and the **Knowledge** view. Details: [`kb-core/README.md`](../kb-core/README.md).
+
+```bash
+./scripts/setup-memory.sh                        # install/update the service and point OMNIX at it
+./scripts/setup-memory.sh ~/notes ~/some-kb-repo # … and keep these folders indexed live
+./scripts/setup-memory.sh --lan                  # headless server: serve other machines (bearer token)
+```
+
+The script pulls `nomic-embed-text` into Ollama and installs the code with a private venv under
+`~/.local/share/omnix/kb-core/`. It writes `~/.config/omnix/kb-core.env` (kept on re-runs; new folders are
+appended) and starts the systemd **user** service `omnix-kb-core` on `127.0.0.1:8100`. It uses OMNIX's chat model
+for fact capture and the duplicate/contradiction judge, and your account's first name for personalised retrieval.
+It migrates memories from kb-core 1.x once, sets `memory.backend_url`, and installs a `kb-core` CLI in
+`~/.local/bin`. Restart OMNIX afterwards if it was running. Data is one SQLite file,
+`~/.local/share/omnix/kb-core/memory.db` (mode 600).
+
+| Task | Command |
+|---|---|
+| Status, counts, models, watched folders | `kb-core status` |
+| Logs | `journalctl --user -u omnix-kb-core -f` |
+| See what the assistant would recall | `kb-core search "your question"` |
+| Settings (models, folders, name) | edit `~/.config/omnix/kb-core.env`, then `systemctl --user restart omnix-kb-core` |
+| Back up / restore | `kb-core export ~/memory.jsonl` · `kb-core import ~/memory.jsonl` (or Knowledge → Export/Import) |
+| Tidy up (merge duplicates, compact) | `kb-core maintenance` (or Knowledge → Optimize) |
+| Run without being logged in (headless) | `sudo loginctl enable-linger $USER` |
+
+**GPU/VRAM:** `nomic-embed-text` is about 0.3 GB and stays resident alongside the chat model. Fact capture and the
+contradiction judge reuse the chat model already loaded by OMNIX, so they add no VRAM (only a few seconds of GPU
+time after a reply, in the background).
+
+**More kb-core options** (`~/.config/omnix/kb-core.env`): `KB_CORE_WATCH=notes=/home/you/notes:work=/srv/docs`
+files folders into knowledge bases; `KB_CORE_INDEX_CODE=0` limits indexing to notes and PDFs (PDFs need
+`poppler-utils` for `pdftotext`); `KB_CORE_VECTOR_DTYPE=float16` halves the index's RAM for very large stores.
+Prometheus can scrape `http://127.0.0.1:8100/metrics`.
+
+**Changing the embedding model** (`KB_CORE_EMBED_MODEL`) is safe: the service re-embeds everything in the
+background from the stored text, and keyword search keeps working meanwhile.
+
+**Services-only / LAN layout:** run `./scripts/setup-memory.sh --lan` on the server. It binds `0.0.0.0:8100` and
+creates a bearer token in `~/.config/omnix/kb-core.token` (mode 600). On each client, set **Settings → Memory →
+kb-core URL** to `http://<server>:8100` and paste the token into the bearer-token field (it's stored in the OS
+keychain). Firewall 8100 to trusted hosts like 11434/8000.
+
 ### Uninstall
 
 ```bash
 sudo apt remove omnix
 docker rm -f omnix-speaches && docker volume rm omnix-hf-cache
-rm -rf ~/.local/share/omnix ~/.local/bin/piper
+systemctl --user disable --now omnix-kb-core && rm ~/.config/systemd/user/omnix-kb-core.service
+rm -rf ~/.local/share/omnix ~/.local/bin/piper   # includes the memory database
 sudo rm /etc/systemd/system/ollama.service.d/omnix.conf && sudo systemctl daemon-reload && sudo systemctl restart ollama
 # Optional: ~/.config/omnix (settings) and ~/.local/share/com.paulmmoore.omnix (logs, audit)
 ```
@@ -196,6 +243,9 @@ sudo rm /etc/systemd/system/ollama.service.d/omnix.conf && sudo systemctl daemon
 | Tauri build fails on `webkit2gtk` / `xdo` | Missing dev packages; re-run bootstrap (it installs `libwebkit2gtk-4.1-dev libxdo-dev …`) |
 | Cloud keys won't save | No Secret Service. Install/unlock GNOME Keyring (`gnome-keyring`, `libsecret-1-0`) |
 | Approval dialogs never appear / `pkexec` fails | No polkit agent in the session. Use a full desktop session |
+| Knowledge view says memory isn't configured | Run `./scripts/setup-memory.sh`, then restart OMNIX. `doctor.sh` checks kb-core when `memory.backend_url` is set |
+| Knowledge view shows "keyword-only" / doctor warns kb-core is degraded | The embedding model isn't reachable: `ollama list \| grep nomic-embed-text`, `journalctl --user -u omnix-kb-core -n 50`. Pending items embed automatically once it's back |
+| Fact capture never saves anything | `kb-core status` shows `llm off`: set `KB_CORE_LLM_MODEL` in `~/.config/omnix/kb-core.env` to an installed chat model and restart the service; also turn on Settings → Memory → Learn from conversations |
 | Remote Ollama rejected with a local-only error | The address isn't private. Use the LAN or Tailscale IP, not a public one |
 
 Still stuck: run `./scripts/doctor.sh` and read the newest `logs/bootstrap-*.log`. If you're using Claude Code on the

@@ -75,6 +75,34 @@ pub async fn execute<R: Runtime>(
     state: &AppState,
     req: ExecRequest,
 ) -> AppResult<ExecResult> {
+    execute_inner(app, state, req, None).await
+}
+
+/// Unattended run for the scheduler/automations. The caller must already
+/// have verified a signed approval for exactly this command and working
+/// directory (`ops::approval::verify`); `label` names the rule for the audit
+/// log. The policy is re-evaluated now, so a rule can never do more than the
+/// current policy allows:
+///
+/// * `Denied` → refused (as always);
+/// * `Privileged` → refused: elevation needs a person at the password prompt;
+/// * `Mutating` (or anything, with `require_confirmation`) → runs, audited as
+///   `confirmation: pre_approved` instead of opening a dialog nobody answers.
+pub async fn execute_preapproved<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &AppState,
+    req: ExecRequest,
+    label: &str,
+) -> AppResult<ExecResult> {
+    execute_inner(app, state, req, Some(label)).await
+}
+
+async fn execute_inner<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &AppState,
+    req: ExecRequest,
+    preapproved: Option<&str>,
+) -> AppResult<ExecResult> {
     let request_id = uuid::Uuid::new_v4().to_string();
     let settings = state.settings.read().await.clone();
     let sec = &settings.security;
@@ -95,7 +123,10 @@ pub async fn execute<R: Runtime>(
         confirmation: Confirmation::Skipped,
         exit_code: None,
         duration_ms: None,
-        detail: Some(class.reasons.join("; ")),
+        detail: Some(match preapproved {
+            Some(label) => format!("unattended ({label}); {}", class.reasons.join("; ")),
+            None => class.reasons.join("; "),
+        }),
     };
 
     // 1. Policy denial.
@@ -105,6 +136,18 @@ pub async fn execute<R: Runtime>(
     }
 
     // 2. Elevation gate (checked before bothering the user with a dialog).
+    if class.tier == RiskTier::Privileged && preapproved.is_some() {
+        let msg =
+            "privileged commands never run unattended (elevation needs you at the password prompt)";
+        state
+            .audit
+            .record(AuditRecord {
+                detail: Some(msg.into()),
+                ..base
+            })
+            .await?;
+        return Err(AppError::PolicyDenied(msg.into()));
+    }
     let program_args = if class.tier == RiskTier::Privileged {
         if !sec.enable_sudo {
             let msg = "privileged commands are disabled (Settings → Security → Enable sudo)";
@@ -142,7 +185,9 @@ pub async fn execute<R: Runtime>(
 
     // 3. Native confirmation.
     let needs_confirm = class.tier >= RiskTier::Mutating || sec.require_confirmation;
-    let confirmation = if needs_confirm {
+    let confirmation = if needs_confirm && preapproved.is_some() {
+        Confirmation::PreApproved
+    } else if needs_confirm {
         let c = confirm::ask(
             app,
             &ConfirmRequest {
@@ -201,7 +246,12 @@ pub async fn execute<R: Runtime>(
                     confirmation,
                     exit_code: out.exit_code,
                     duration_ms: Some(duration_ms),
-                    detail: out.truncated.then(|| "output truncated".to_string()),
+                    detail: match (preapproved, out.truncated) {
+                        (Some(l), true) => Some(format!("unattended ({l}); output truncated")),
+                        (Some(l), false) => Some(format!("unattended ({l})")),
+                        (None, true) => Some("output truncated".to_string()),
+                        (None, false) => None,
+                    },
                     ..base
                 })
                 .await?;

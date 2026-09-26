@@ -25,7 +25,13 @@
 | AI tool use: the model can list/read files and run commands, **through the same policy engine and approval dialogs** | ✅ (Ollama models with tool support; others answer without tools) |
 | `/execute` shell commands, risk-classified, with native approval for anything that changes the system | ✅ |
 | `/file read`, `/file list`, `/file write` (writes need approval, credential files are off-limits) | ✅ |
-| `/monitor` and the System Control view (CPU, memory, swap, disk, network, temperature, processes, ending a process) | ✅ |
+| System Control: live CPU/memory/disk/network/sensors with history, **every GPU (NVIDIA + AMD)** with VRAM, temperature, power and per-process usage; agent metrics (tokens/s, time to first token, tool latency, recall) and model metrics (VRAM split, cold starts) | ✅ |
+| Services & Docker: list, start/stop/restart and logs for systemd services and containers (confirmed, audited) | ✅ |
+| Alerts, automations and scheduler: metric/service/container/model alerts with desktop notifications; triggers (alert, condition, process, file, idle) → notify / command / AI report; cron schedules; unattended commands need one signed native approval | ✅ |
+| Cleanup & Optimize: reclaimable-space scan with confirmed cleanup; measured recommendations with one-click fixes | ✅ |
+| Model manager: installed and loaded Ollama models, load/unload, download with progress, delete | ✅ |
+| Agent host tools: `host_status`, `host_control`, `create_schedule`, `create_alert` | ✅ every change confirmed natively |
+| `/monitor` and process list with ending a process | ✅ |
 | Launch at login (Settings → General) | ✅ |
 | API keys stored in the OS keychain | ✅ |
 | Hash-chained, redacted audit log with a **Verify** button | ✅ |
@@ -34,8 +40,7 @@
 | Cloud providers (Anthropic, OpenAI, Gemini, xAI) with streaming + tools | ✅ when local-only mode is turned off; keys in the OS keychain |
 | Voice: push-to-talk speech input via a faster-whisper server (Speaches), read-aloud via local Piper | ✅ when configured (Settings → Voice); hold or tap the mic, or hold Ctrl+Space; built-in mic test |
 | JARVIS-style holographic avatar: 13 mood colours, alert halos (offline, high load, blocked, connection issue), tool-call satellites, in-app colour key | ✅ |
-| Long-term memory (save, search, index documents) via an external kb-core service | ✅ when configured ([contract](docs/kb-core-contract.md)); knowledge-base management, export/import planned |
-| Services, automations, scheduler, alerts, cleanup | 🚧 planned: controls are disabled in the UI |
+| Long-term memory ([kb-core](kb-core/README.md)): automatic recall before each reply, `remember` tool, optional fact capture, conversation archive, duplicate merging and contradiction handling, hybrid keyword + semantic search over memories, notes, PDFs and code in live-synced folders, **knowledge bases**, analytics, export/import, Prometheus metrics | ✅ installed by `bootstrap.sh` / `./scripts/setup-memory.sh` ([contract](docs/kb-core-contract.md)) |
 | MCP servers (stdio or HTTP) as extra AI tools, every call policy-gated and audited | ✅ Settings → MCP Servers |
 | Tray icon, close-to-tray, single instance, remembered window size | ✅ |
 | Optional audit-log shipping to Grafana Loki | ✅ off by default |
@@ -52,7 +57,7 @@ Anything marked planned is visibly disabled in the app and returns a `not_implem
 ### One command (Ubuntu / Debian, recommended)
 
 ```bash
-git clone https://github.com/paulmmoore3416/omnix-ai-desktop.git   # private repo: gh auth login first
+git clone https://github.com/paulmmoore3416/omnix-ai-desktop.git
 cd omnix-ai-desktop
 ./scripts/bootstrap.sh
 ```
@@ -105,7 +110,7 @@ Open **Settings → AI Models** and pick a model from the list (OMNIX reads the 
 
 ## Usage
 
-New to OMNIX? Start with the **[User Guide](docs/USER_GUIDE.md)**. For a full capability breakdown see the **[Project Overview](docs/PROJECT_OVERVIEW.md)**.
+New to OMNIX? Start with the **[User Guide](docs/USER_GUIDE.md)**. For a full capability breakdown (and what makes OMNIX different) see the **[Project Overview](docs/PROJECT_OVERVIEW.md)**; for every command, setting, event and algorithm see the **[Technical Reference](docs/TECHNICAL_REFERENCE.md)**. The memory engine is documented in **[kb-core/README.md](kb-core/README.md)**, and the story behind the project is in **[this article](docs/articles/medium-omnix-kb-core.md)**.
 
 ```text
 /execute git status                 # read-only: runs immediately
@@ -116,7 +121,7 @@ New to OMNIX? Start with the **[User Guide](docs/USER_GUIDE.md)**. For a full ca
 /monitor
 ```
 
-Anything that doesn't start with `/` goes to the configured model. Responses stream in the **Conversation** view. The model may use tools (list/read files, run commands, search memory), and anything that would change your system still opens an approval dialog labelled *proposed by the AI assistant*. By default it gets one round of tool calls per message; **Settings → Security → autonomous mode** raises that (off by default).
+Anything that doesn't start with `/` goes to the configured model. Responses stream in the **Conversation** view. The model may use tools (list/read files, run commands, search and save memories), and anything that would change your system still opens an approval dialog labelled *proposed by the AI assistant*. By default it gets one round of tool calls per message; **Settings → Security → autonomous mode** raises that (off by default).
 
 ---
 
@@ -160,13 +165,18 @@ flowchart LR
     UI["Webview<br/>SvelteKit 5<br/>(untrusted)"] -- "Tauri IPC" --> CMD["commands/*"]
     CMD --> SEC["security/*<br/>policy · confirm · executor<br/>files · audit · secrets"]
     CMD --> AI["ai/*<br/>local_only guard · Ollama"]
-    CMD --> SYS["system/*<br/>metrics · processes"]
+    CMD --> SYS["system/*<br/>metrics · GPUs · services<br/>docker · cleanup"]
+    CMD --> OPS["ops/*<br/>alerts · automations<br/>scheduler"]
+    CMD --> MEM["memory/*<br/>kb-core adapter"]
     CMD --> SET["settings<br/>(no secrets)"]
     SEC --> OS[(OS)]
     SEC --> KC[(Keychain)]
     SEC --> LOG[(audit.jsonl)]
     SEC -.-> DLG[[Native dialog]]
     AI --> OL[(Ollama)]
+    MEM --> KB[(kb-core)]
+    OPS --> SEC
+    SYS --> SEC
 ```
 
 The Rust backend is the trust boundary; the webview can only call registered commands. Details, sequence diagrams and design decisions: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
@@ -176,6 +186,7 @@ The Rust backend is the trust boundary; the webview can only call registered com
 ```bash
 npm run check                     # svelte-check
 npm test                          # Vitest
+(cd kb-core && python3 -m unittest discover -s tests -t .)   # kb-core
 ./scripts/doctor.sh               # environment health check
 cd src-tauri && cargo test        # Rust unit tests
 cargo clippy --all-targets -- -D warnings
@@ -186,6 +197,7 @@ cargo clippy --all-targets -- -D warnings
 - **Frontend:** SvelteKit 5, TypeScript, Tailwind CSS
 - **Backend:** Tauri 2, Rust (tokio, reqwest, sysinfo, keyring, tracing)
 - **AI:** Ollama (local), Anthropic Messages API, OpenAI-compatible APIs; custom agent loop (no framework)
+- **Memory:** [kb-core](kb-core/README.md): Python standard library (numpy optional), SQLite FTS5, Ollama embeddings
 
 ---
 
