@@ -1,0 +1,26 @@
+[project]
+name = "kb-core"
+version = "2.1.0"
+description = "Local long-term memory engine for OMNIX: hybrid search, memory dynamics, fact capture, live folder sync."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+# Fast exact vector search; without it kb-core uses a pure-Python fallback.
+fast = ["numpy>=2"]
+
+[project.scripts]
+kb-core = "kb_core.cli:main"
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["kb_core"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
