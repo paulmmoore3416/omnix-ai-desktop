@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Docs
 
+- Server deployment guide and runbook: corrected the reference GPU layout. Ollama runs on the AMD RX 580 8 GB through
+  Vulkan (measured: `qwen3:8b` fully on GPU, ~5.3 GB); the GTX 1060 6 GB runs Speaches. Removed the untested claim
+  that 14B models split across both cards.
+
+### Docs
+
 - `docs/REMOTE_ACCESS.md`: proposed design for using OMNIX from a phone over Tailscale (gateway inside the Rust
   backend, QR pairing with hardware-held device keys, WebSocket API, desk-only approvals first). Nothing is built yet.
 
