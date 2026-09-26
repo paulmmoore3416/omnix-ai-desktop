@@ -18,6 +18,7 @@ pub mod mcp;
 pub mod memory;
 pub mod observability;
 pub mod ops;
+pub mod phone;
 pub mod security;
 pub mod settings;
 pub mod state;
@@ -154,6 +155,8 @@ pub fn run() {
             commands::chat::chat_send,
             commands::chat::chat_cancel,
             commands::chat::chat_reset,
+            // Phone
+            commands::phone::phone_test,
             // Execution (the only shell entry point) and audit
             commands::exec::request_execution,
             commands::exec::verify_audit_log,

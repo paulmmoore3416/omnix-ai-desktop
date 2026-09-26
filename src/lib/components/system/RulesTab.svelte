@@ -27,6 +27,7 @@
   let alertName = $state('');
   let alertCond = $state<Condition>(blankCondition());
   let alertNotify = $state(true);
+  let alertPhone = $state<'' | 'sms' | 'call'>('');
 
   let autoName = $state('');
   let triggerKind = $state<Trigger['kind']>('condition');
@@ -82,7 +83,7 @@
   async function create() {
     let ok = false;
     if (kind === 'alerts') {
-      ok = await run(() => call('create_alert', { input: { name: alertName, condition: clean(alertCond), notify: alertNotify } }), `Alert “${alertName}” created`);
+      ok = await run(() => call('create_alert', { input: { name: alertName, condition: clean(alertCond), notify: alertNotify, phone: alertPhone || null } }), `Alert “${alertName}” created`);
       if (ok) { alertName = ''; alertCond = blankCondition(); }
     } else if (kind === 'automations') {
       ok = await run(() => call('create_automation', { input: { name: autoName, trigger: trigger(), action: autoAction } }), `Automation “${autoName}” created`);
@@ -121,16 +122,16 @@
   function preset(p: { name: string; condition: Condition }) {
     return run(() => call('create_alert', { input: { name: p.name, condition: p.condition, notify: true } }), `Alert “${p.name}” created`);
   }
-  function briefing() {
+  function briefing(textMe = false) {
     return run(
       () => call('create_scheduled_task', {
         input: {
-          name: 'Morning briefing',
+          name: textMe ? 'Morning briefing by text' : 'Morning briefing',
           schedule: '0 8 * * 1-5',
-          action: { kind: 'ai_report', prompt: 'Morning briefing: health of this computer, anything that failed overnight, disk and GPU status, and what needs my attention today.', save_to_memory: true }
+          action: { kind: 'ai_report', prompt: 'Morning briefing: health of this computer, anything that failed overnight, disk and GPU status, and what needs my attention today.', save_to_memory: true, text_me: textMe }
         }
       }),
-      'Morning briefing scheduled for weekdays at 08:00'
+      `Morning briefing${textMe ? ' (texted to your phone)' : ''} scheduled for weekdays at 08:00`
     );
   }
 
@@ -168,10 +169,15 @@
         <button disabled={busy} onclick={() => preset(p)} class="text-xs px-2 py-1 rounded-full bg-white/5 hover:bg-white/10 disabled:opacity-40">{p.name}</button>
       {/each}
     </div>
-  {:else if kind === 'tasks' && !showForm && !(data?.tasks ?? []).some((t) => t.task.name === 'Morning briefing')}
-    <button disabled={busy} onclick={briefing} class="text-xs px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 disabled:opacity-40">
-      ☀ Quick add: weekday morning briefing (AI report at 08:00, saved to memory)
-    </button>
+  {:else if kind === 'tasks' && !showForm && !(data?.tasks ?? []).some((t) => t.task.name.startsWith('Morning briefing'))}
+    <div class="flex flex-wrap gap-2">
+      <button disabled={busy} onclick={() => briefing()} class="text-xs px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 disabled:opacity-40">
+        ☀ Quick add: weekday morning briefing (AI report at 08:00, saved to memory)
+      </button>
+      <button disabled={busy} onclick={() => briefing(true)} class="text-xs px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 disabled:opacity-40" title="Needs Settings → Phone">
+        📱 …and text it to my phone
+      </button>
+    </div>
   {/if}
 
   {#if showForm}
@@ -180,6 +186,14 @@
         <input id="alert-name" bind:value={alertName} placeholder="Name, e.g. GPU running hot" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm" />
         <ConditionEditor bind:condition={alertCond} idPrefix="alert" />
         <label class="flex items-center gap-2 text-sm"><input id="alert-notify" type="checkbox" bind:checked={alertNotify} /> Desktop notification when it fires</label>
+        <label class="flex items-center gap-2 text-sm">
+          Phone:
+          <select id="alert-phone" bind:value={alertPhone} class="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-sm">
+            <option value="">don't contact my phone</option>
+            <option value="sms">text me when it fires</option>
+            <option value="call">call me when it fires</option>
+          </select>
+        </label>
       {:else if kind === 'automations'}
         <input id="auto-name" bind:value={autoName} placeholder="Name, e.g. Restart speech server when it dies" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm" />
         <div>

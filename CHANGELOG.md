@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Texts and calls to your phone** through Twilio (Settings → Phone, off by default). Alerts can text or call you
+  when they fire. Automations and schedules gain **Text my phone** and **Call my phone** actions, and an AI report
+  can be texted (a new quick-add preset sends the weekday morning briefing by text). The agent's schedule and alert
+  tools accept the same options, confirmed natively. Outbound only: the one recipient is your configured number and
+  nothing is accepted by text. The auth token is kept in the keychain, sends are capped per hour
+  (`phone.max_per_hour`) and audited (`phone_sms`, `phone_call`). This is the one documented exception to local-only
+  mode, and turning it on is confirmed natively.
+
 ### Changed
 - The four memory settings that had no effect now work. `enable_semantic_search` off makes every search keyword-only;
   `max_memory_size` refuses new memories when the limit is reached (0 = unlimited, nothing is deleted);

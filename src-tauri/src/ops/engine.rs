@@ -213,6 +213,24 @@ async fn tick_once<R: TauriRuntime>(
                 if alert.notify {
                     notify(app, &format!("⚠ {}", alert.name), &summary);
                 }
+                if let Some(channel) = alert.phone {
+                    let app = app.clone();
+                    let (name, text) = (alert.name.clone(), format!("⚠ {}: {summary}", alert.name));
+                    tauri::async_runtime::spawn(async move {
+                        let state = app.state::<AppState>();
+                        let reason = format!("alert “{name}”");
+                        if let Err(e) =
+                            crate::phone::send(&state, channel, &text, &reason, Source::User).await
+                        {
+                            tracing::warn!(error = %e, alert = %name, "phone alert not sent");
+                            notify(
+                                &app,
+                                &format!("Phone alert not sent: {name}"),
+                                &e.to_string(),
+                            );
+                        }
+                    });
+                }
                 fired_alerts.push(alert.id.clone());
             }
         } else if !truth && alert.state.firing {
@@ -594,11 +612,49 @@ pub async fn run_action<R: TauriRuntime>(
             )
             .await
         }
+        Action::Text { message } | Action::Call { message } => {
+            let channel = if matches!(action, Action::Call { .. }) {
+                crate::phone::PhoneChannel::Call
+            } else {
+                crate::phone::PhoneChannel::Sms
+            };
+            // Rules are the user's (or confirmed by them when the model
+            // proposed them), so the send is attributed to the user.
+            match crate::phone::send(
+                state,
+                channel,
+                message,
+                &format!("rule “{name}”"),
+                Source::User,
+            )
+            .await
+            {
+                Ok(_) => (true, action.describe(), None),
+                Err(e) => (false, format!("phone: {e}"), None),
+            }
+        }
         Action::AiReport {
             prompt,
             save_to_memory,
+            text_me,
         } => match ai_report(state, name, prompt, *save_to_memory).await {
             Ok((text, saved)) => {
+                let texted = if *text_me {
+                    match crate::phone::send(
+                        state,
+                        crate::phone::PhoneChannel::Sms,
+                        &format!("{name}\n{text}"),
+                        &format!("report “{name}”"),
+                        Source::User,
+                    )
+                    .await
+                    {
+                        Ok(_) => " (texted to you)".to_string(),
+                        Err(e) => format!(" (text failed: {e})"),
+                    }
+                } else {
+                    String::new()
+                };
                 let head: String = text
                     .lines()
                     .filter(|l| !l.trim().is_empty())
@@ -608,7 +664,7 @@ pub async fn run_action<R: TauriRuntime>(
                 (
                     true,
                     format!(
-                        "{}{}",
+                        "{}{}{texted}",
                         head.chars().take(400).collect::<String>(),
                         if saved { " (saved to memory)" } else { "" }
                     ),

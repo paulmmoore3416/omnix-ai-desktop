@@ -43,6 +43,7 @@
 | JARVIS-style holographic avatar: 13 mood colours, alert halos (offline, high load, blocked, connection issue), tool-call satellites, in-app colour key | ✅ |
 | Long-term memory ([kb-core](kb-core/README.md)): automatic recall before each reply, `remember` tool, optional fact capture, conversation archive, duplicate merging and contradiction handling (local LLM, optionally cross-checked by an NLI model), recall feedback, optional encryption at rest, hybrid keyword + semantic search over memories, notes, PDFs and code in live-synced folders, **knowledge bases**, analytics, export/import, Prometheus metrics | ✅ installed by `bootstrap.sh` / `./scripts/setup-memory.sh` ([contract](docs/kb-core-contract.md)) |
 | MCP servers (stdio or HTTP) as extra AI tools, every call policy-gated and audited | ✅ Settings → MCP Servers |
+| Phone: alerts, rules and reports can **text or call your phone** (Twilio, outbound only, rate-limited, audited) | ✅ off by default; Settings → Phone |
 | Tray icon, close-to-tray, single instance, remembered window size | ✅ |
 | Optional audit-log shipping to Grafana Loki | ✅ off by default |
 | AIORC routing backend | 🚧 scaffold only (`--features aiorc`), awaiting its `.proto` |

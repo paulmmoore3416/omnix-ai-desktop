@@ -51,6 +51,8 @@ pub struct AppState {
     /// Document name of the current conversation's archive (reset by
     /// `chat_reset`).
     pub conversation_doc: Mutex<Option<String>>,
+    /// Recent phone sends (`phone.max_per_hour`).
+    pub phone_limit: crate::phone::RateLimiter,
 }
 
 impl AppState {
@@ -90,6 +92,7 @@ impl AppState {
             history: Mutex::new(crate::system::history::History::default()),
             ops: crate::ops::OpsState::load(crate::ops::default_path()?),
             conversation_doc: Mutex::new(None),
+            phone_limit: crate::phone::RateLimiter::default(),
         })
     }
 

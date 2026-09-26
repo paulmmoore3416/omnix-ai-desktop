@@ -239,6 +239,15 @@ All commands return `AppResult<T>`; errors arrive as `{kind, message}` (§10). A
 | `voice_transcribe` | raw WAV body | `string` | Speaches `/v1/audio/transcriptions` |
 | `voice_speak` | `text` | WAV bytes | Piper subprocess, audited (`tts`) |
 
+### Phone
+
+| Command | Arguments | Returns | Notes |
+|---|---|---|---|
+| `phone_test` | `channel` (`sms` \| `call`) | `string` | Fixed test text/call to `phone.to_number`; audited (`phone_sms`/`phone_call`) |
+
+Rules use the phone through alert `phone` (`sms`/`call`), the `text` / `call` actions and `ai_report.text_me`; the
+agent's `create_schedule` / `create_alert` tools accept the same fields (confirmed natively).
+
 Still 🚧 (`not_implemented`): `test_integration`.
 
 ## 6. Chat event protocol
@@ -386,6 +395,17 @@ File: `~/.config/omnix/settings.json`. Unknown fields are ignored and missing fi
 | `tts_engine` | `"piper"` | |
 | `wake_word`, `continuous_listening` | `"omnix"`, `false` | Not used: voice is push-to-talk only |
 
+### `phone`
+
+| Key | Default | Notes |
+|---|---|---|
+| `enabled` | `false` | Enabling it, or changing a number or the SID while on, is confirmed natively. Works in local-only mode (the one exception) |
+| `account_sid` | `""` | `AC` + 32 hex digits |
+| `from_number` / `to_number` | `""` | E.164 (`+` and country code). `to_number` is the only recipient |
+| `max_per_hour` | `10` | Texts + calls per rolling hour (1–60) |
+
+The Twilio auth token is in the keychain as `twilio`.
+
 ### Others
 
 `general` (`theme "cosmic"`, `language`, `auto_start false`, `notifications true`, `sound_effects true`,
@@ -421,7 +441,7 @@ File: `~/.config/omnix/settings.json`. Unknown fields are ignored and missing fi
 | Field | Values |
 |---|---|
 | `source` | `user`, `llm_tool` |
-| `action` | `exec`, `read_file`, `list_directory`, `write_file`, `kill_process`, `settings_change`, `mcp_start`, `mcp_call`, `tts`, `memory_save`, `memory_capture`, `memory_retention`, `memory_export`, `memory_import`, `kb_delete`, `model_load`, `model_unload`, `model_pull`, `model_delete`, `cleanup`, `ops_create`, `ops_approve` |
+| `action` | `exec`, `read_file`, `list_directory`, `write_file`, `kill_process`, `settings_change`, `mcp_start`, `mcp_call`, `tts`, `memory_save`, `memory_capture`, `memory_retention`, `phone_sms`, `phone_call`, `memory_export`, `memory_import`, `kb_delete`, `model_load`, `model_unload`, `model_pull`, `model_delete`, `cleanup`, `ops_create`, `ops_approve` |
 | `tier` | `read_only`, `mutating`, `privileged`, `denied` |
 | `decision` | `allowed`, `denied`, `not_approved`, `failed` |
 | `confirmation` | `not_required`, `approved`, `declined`, `timed_out`, `skipped`, `pre_approved` (unattended run of a signed rule; `detail` names the rule) |

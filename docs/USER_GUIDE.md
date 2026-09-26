@@ -308,6 +308,7 @@ admin commands, adding a new server) asks you to confirm in a pop-up.
 | **MCP Servers** | Add extra tools for the AI through the Model Context Protocol. Each tool call is checked and logged |
 | **Voice** | Speech-to-text server, Whisper model, language, Piper read-aloud, and **Test microphone** |
 | **Memory** | The memory service URL, **Recall automatically** (on), how many entries to recall and how relevant they must be, **Learn from conversations** (off; asks you to confirm when you turn it on), **Archive conversations** (on: a searchable copy of your chats), **Summarize conversations** (off: when you clear a chat, save a short summary as a memory), **Semantic search** (on; off = match words only), **Memory limit** (1000; when full, new memories are refused, nothing is deleted for you) and **Keep archived conversations** (0 = forever; older chat transcripts are deleted daily) |
+| **Phone** | Let OMNIX **text or call your phone** through Twilio: your number, the Twilio number and account, the auth token (kept in the keychain) and a per-hour limit. **Test text** and **Test call** check it. Off by default; turning it on asks you to confirm |
 | **Security** | Local-only mode, admin commands, autonomous mode, blocked commands, audit-log verification |
 | **Performance** | Performance-related options |
 
@@ -512,6 +513,13 @@ audit log.
 containers, loaded models, firing alerts) and writes a short summary. It can't run anything. Tick *Save each report
 to long-term memory* to be able to ask later *"what did last week's reports say about the disk?"*
 
+**Your phone.** Once Settings → Phone is set up, an alert can also **text or call you** when it fires (pick it
+under *Phone* when you create the alert). Automations and schedules get two more actions, **Text my phone** and
+**Call my phone**, and an AI report can be texted to you (**Quick add → …and text it to my phone** gives you the
+morning briefing by text). A call reads the message aloud twice. OMNIX only ever contacts your own number and never
+takes instructions by text. Messages go through Twilio, so keep sensitive details out of them. The per-hour limit
+stops a flapping alert from running up a bill.
+
 **Ask in chat.** You don't need the tabs for most of this. Try:
 
 - *"How are my GPUs doing?"* or *"What's using the most memory?"*
@@ -519,6 +527,7 @@ to long-term memory* to be able to ask later *"what did last week's reports say 
 - *"Show me the last logs of ollama.service"*
 - *"Every weekday at 8, give me a health report"* (the assistant proposes a schedule; you confirm it)
 - *"Warn me if the disk goes over 90%"*
+- *"Text me if the GPU goes over 85 °C"* or *"Call me if Ollama goes down"* (needs Settings → Phone)
 
 Notifications from alerts and automations appear on your desktop and inside OMNIX, and the avatar flashes.
 

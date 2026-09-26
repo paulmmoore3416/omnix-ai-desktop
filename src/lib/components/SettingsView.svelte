@@ -25,6 +25,7 @@
     { id: 'integrations', label: 'MCP Servers', icon: '🔌' },
     { id: 'voice', label: 'Voice', icon: '🎤' },
     { id: 'memory', label: 'Memory', icon: '🧠' },
+    { id: 'phone', label: 'Phone', icon: '📱' },
     { id: 'security', label: 'Security', icon: '🔒' },
     { id: 'performance', label: 'Performance', icon: '⚡' }
   ];
@@ -122,6 +123,18 @@
       flash('error', `Not saved: ${errorMessage(e)}`, 8000);
     } finally {
       isSaving = false;
+    }
+  }
+
+  // Sends a fixed test text or call to the *saved* number.
+  async function testPhone(channel: 'sms' | 'call') {
+    testingConnection = `phone-${channel}`;
+    try {
+      flash('success', await call<string>('phone_test', { channel }));
+    } catch (e) {
+      flash('error', errorMessage(e), 8000);
+    } finally {
+      testingConnection = null;
     }
   }
 
@@ -559,6 +572,49 @@
                   <input id="retention" type="number" min="0" max="36500" bind:value={settings.memory.retention_days} disabled={!settings.memory.backend_url} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 disabled:opacity-50" />
                   <p class="text-xs text-gray-400 mt-1">Older chat transcripts are deleted daily. Memories and documents are never removed by age.</p>
                 </div>
+              </div>
+            </div>
+          </div>
+
+        {:else if activeTab === 'phone'}
+          <div class="space-y-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-xl font-bold text-cosmic-cyan">Phone: texts and calls</h3>
+              <div class="flex gap-2">
+                <button onclick={() => testPhone('sms')} disabled={testingConnection !== null || !settings.phone.enabled} class="glass-panel px-4 py-2 hover:bg-white/10 transition-all text-sm disabled:opacity-50">
+                  {testingConnection === 'phone-sms' ? '⏳ Sending...' : '💬 Test text'}
+                </button>
+                <button onclick={() => testPhone('call')} disabled={testingConnection !== null || !settings.phone.enabled} class="glass-panel px-4 py-2 hover:bg-white/10 transition-all text-sm disabled:opacity-50">
+                  {testingConnection === 'phone-call' ? '⏳ Calling...' : '📞 Test call'}
+                </button>
+              </div>
+            </div>
+            <div class="glass-panel p-4 bg-white/5 text-sm text-gray-300 space-y-2">
+              <p>OMNIX can text or call <strong>your</strong> phone: alerts, scheduled reports and "text me" / "call me" actions in System Control → Rules. It only ever contacts the number below and never takes instructions by text or phone.</p>
+              <p class="text-yellow-300">This uses Twilio, a paid cloud service. Message text leaves this computer, even in local-only mode, so keep sensitive details out of messages. Enabling it asks you to confirm. Save settings before testing.</p>
+            </div>
+            <div class="space-y-4">
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Allow texts and calls</span>
+                <input type="checkbox" bind:checked={settings.phone.enabled} class="w-5 h-5" />
+              </label>
+              <div>
+                <label for="phone-to" class="block text-sm font-medium mb-2">Your phone number</label>
+                <input id="phone-to" type="tel" bind:value={settings.phone.to_number} placeholder="+15551234567" class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+              </div>
+              <div>
+                <label for="phone-from" class="block text-sm font-medium mb-2">Twilio number (sender)</label>
+                <input id="phone-from" type="tel" bind:value={settings.phone.from_number} placeholder="+15557654321" class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+              </div>
+              <div>
+                <label for="phone-sid" class="block text-sm font-medium mb-2">Twilio account SID</label>
+                <input id="phone-sid" type="text" bind:value={settings.phone.account_sid} placeholder="AC…" class="w-full font-mono bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+              </div>
+              <SecretField provider="twilio" label="Twilio auth token (stored in the OS keychain)" placeholder="auth token" />
+              <div>
+                <label for="phone-max" class="block text-sm font-medium mb-2">Most texts + calls per hour</label>
+                <input id="phone-max" type="number" min="1" max="60" bind:value={settings.phone.max_per_hour} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+                <p class="text-xs text-gray-400 mt-1">Stops a flapping alert from running up a bill. Numbers use international format: + and country code.</p>
               </div>
             </div>
           </div>

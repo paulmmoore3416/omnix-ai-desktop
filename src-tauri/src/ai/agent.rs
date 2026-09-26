@@ -216,13 +216,14 @@ pub fn host_tool_specs() -> Vec<ToolSpec> {
     let action = json!({
         "type": "object",
         "properties": {
-            "kind": { "type": "string", "enum": ["notify", "command", "ai_report"] },
+            "kind": { "type": "string", "enum": ["notify", "command", "ai_report", "text", "call"] },
             "title": { "type": "string", "description": "notify: title" },
-            "message": { "type": "string", "description": "notify: body" },
+            "message": { "type": "string", "description": "notify: body; text/call: what to text or say to the user's phone" },
             "command": { "type": "string", "description": "command: the command line" },
             "cwd": { "type": "string", "description": "command: absolute working directory" },
             "prompt": { "type": "string", "description": "ai_report: what the report should cover" },
-            "save_to_memory": { "type": "boolean", "description": "ai_report: also save it to long-term memory" }
+            "save_to_memory": { "type": "boolean", "description": "ai_report: also save it to long-term memory" },
+            "text_me": { "type": "boolean", "description": "ai_report: also text the report to the user's phone" }
         },
         "required": ["kind"]
     });
@@ -283,7 +284,8 @@ pub fn host_tool_specs() -> Vec<ToolSpec> {
                     "op": { "type": "string", "enum": ["above", "below"] },
                     "threshold": { "type": "number" },
                     "sustain_secs": { "type": "integer", "minimum": 0, "maximum": 86400 },
-                    "target": { "type": "string", "description": "GPU index, process name, 'user/unit.service' or container name" }
+                    "target": { "type": "string", "description": "GPU index, process name, 'user/unit.service' or container name" },
+                    "phone": { "type": "string", "enum": ["sms", "call"], "description": "Also text or call the user's phone when it fires (only if they asked for it)" }
                 },
                 "required": ["name", "metric"],
                 "additionalProperties": false
@@ -317,8 +319,15 @@ fn action_from(v: &Value) -> Result<crate::ops::model::Action, String> {
                 .get("save_to_memory")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+            text_me: v.get("text_me").and_then(Value::as_bool).unwrap_or(false),
         }),
-        _ => Err("action.kind must be notify, command or ai_report".into()),
+        Some("text") => Ok(Action::Text {
+            message: s("message"),
+        }),
+        Some("call") => Ok(Action::Call {
+            message: s("message"),
+        }),
+        _ => Err("action.kind must be notify, command, ai_report, text or call".into()),
     }
 }
 
@@ -409,6 +418,11 @@ async fn create_rule<R: Runtime>(
                     name: arg_str(a, "name")?,
                     condition,
                     notify: Some(true),
+                    phone: match a.get("phone").and_then(Value::as_str) {
+                        Some("sms") => Some(crate::phone::PhoneChannel::Sms),
+                        Some("call") => Some(crate::phone::PhoneChannel::Call),
+                        _ => None,
+                    },
                     cooldown_secs: None,
                 },
                 Source::LlmTool,
@@ -1352,13 +1366,6 @@ mod tests {
     }
 
     #[test]
-    fn capture_skips_short_and_slash_messages() {
-        assert!(!worth_capturing("hi there"));
-        assert!(!worth_capturing("/execute touch /tmp/some-long-file"));
-        assert!(worth_capturing("I moved to Springfield last year for work"));
-    }
-
-    #[test]
     fn summary_drops_reasoning_and_is_clipped() {
         assert_eq!(
             clean_summary("<think>plan\nstuff</think>\n The user set up  backups."),
@@ -1366,6 +1373,13 @@ mod tests {
         );
         let long = "word ".repeat(1_000);
         assert_eq!(clean_summary(&long).chars().count(), MAX_SUMMARY_CHARS + 1);
+    }
+
+    #[test]
+    fn capture_skips_short_and_slash_messages() {
+        assert!(!worth_capturing("hi there"));
+        assert!(!worth_capturing("/execute touch /tmp/some-long-file"));
+        assert!(worth_capturing("I moved to Springfield last year for work"));
     }
 
     #[test]

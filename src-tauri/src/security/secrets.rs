@@ -32,6 +32,7 @@ pub const PROVIDERS: &[&str] = &[
     "jira",
     "notion",
     "kb_core",
+    "twilio",
 ];
 
 /// Keychain entries only Rust code may use. [`validate_provider`] (which

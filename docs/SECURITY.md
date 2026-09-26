@@ -192,6 +192,15 @@ Default **on**. Enforced in Rust (`ai::endpoint`):
   IPv6 ULA `fc00::/7` addresses.
 * The CSP prevents the webview from making network requests itself.
 * Turning it off requires native confirmation and is audited.
+* **One exception: texts and calls to your phone** (`phone.rs`). When the
+  user enables Settings → Phone (a natively confirmed change whose dialog says
+  that message text leaves the computer), texts and calls go to Twilio even in
+  local-only mode. The API host is a constant, the only recipient is
+  `phone.to_number` (changing it is confirmed again), the auth token is in the
+  keychain, sends are capped per hour and every attempt is audited
+  (`phone_sms`, `phone_call`). The phone is outbound only: nothing is accepted
+  by SMS or call (caller ID can be spoofed), so there is no listener. Call text
+  is XML-escaped so it cannot add TwiML verbs. Off by default.
 
 **Healthcare networks:** keep `local_only` on. It prevents prompts, which may
 contain PHI, from being sent to third-party services. Residual risk: DNS
@@ -430,6 +439,9 @@ the local kb-core `conversations` collection, which automatic recall excludes.
 
 ## 15. Known limitations
 
+* With the phone enabled, alert summaries, rule messages and texted AI reports
+  pass through Twilio and the mobile network. Don't text reports that may
+  contain PHI.
 * Classification is conservative but not a sandbox: an approved Mutating
   command runs with your user's full permissions. Read the dialog. The same
   applies to an unattended command you approved: it runs with your

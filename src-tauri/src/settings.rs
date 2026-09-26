@@ -42,6 +42,8 @@ pub struct Settings {
     pub security: SecuritySettings,
     /// Performance tuning.
     pub performance: PerformanceSettings,
+    /// Texts and calls to the owner's phone (Twilio, outbound only).
+    pub phone: PhoneSettings,
 }
 
 impl Default for Settings {
@@ -57,8 +59,59 @@ impl Default for Settings {
             memory: MemorySettings::default(),
             security: SecuritySettings::default(),
             performance: PerformanceSettings::default(),
+            phone: PhoneSettings::default(),
         }
     }
+}
+
+/// Outbound texts and calls to the owner's phone through Twilio. Off by
+/// default. The Twilio auth token lives in the keychain (`twilio`); the
+/// account SID and numbers are identifiers, not secrets. This file never
+/// leaves the machine, so the numbers are not in the repository.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PhoneSettings {
+    /// Allow OMNIX to send texts and place calls. Enabling it is a
+    /// confirmed change: message text goes to Twilio even in local-only mode.
+    pub enabled: bool,
+    /// Twilio account SID (`AC` + 32 hex digits).
+    pub account_sid: String,
+    /// The Twilio number messages come from (E.164, e.g. `+15551234567`).
+    pub from_number: String,
+    /// The owner's phone (E.164). The only recipient OMNIX ever uses.
+    pub to_number: String,
+    /// Cap on texts + calls per rolling hour, so a flapping alert or a
+    /// runaway rule cannot run up a bill (1–60).
+    pub max_per_hour: u32,
+}
+
+impl Default for PhoneSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            account_sid: String::new(),
+            from_number: String::new(),
+            to_number: String::new(),
+            max_per_hour: 10,
+        }
+    }
+}
+
+/// `+` and 8–15 digits, first digit non-zero (E.164).
+pub fn is_e164(n: &str) -> bool {
+    n.strip_prefix('+').is_some_and(|d| {
+        (8..=15).contains(&d.len()) && d.chars().all(|c| c.is_ascii_digit()) && !d.starts_with('0')
+    })
+}
+
+/// `AC` + 32 lowercase hex digits. Interpolated into the Twilio URL path,
+/// so nothing else is accepted.
+pub fn is_twilio_sid(s: &str) -> bool {
+    s.len() == 34
+        && s.starts_with("AC")
+        && s[2..]
+            .chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
 }
 
 /// MCP client configuration.
@@ -444,6 +497,28 @@ impl Settings {
         if self.memory.retention_days > 36_500 {
             return bad("memory.retention_days must be at most 36500 (0 = keep forever)");
         }
+        let ph = &self.phone;
+        if !ph.account_sid.is_empty() && !is_twilio_sid(&ph.account_sid) {
+            return bad("phone.account_sid must look like AC followed by 32 hex digits");
+        }
+        for (n, what) in [
+            (&ph.from_number, "from_number"),
+            (&ph.to_number, "to_number"),
+        ] {
+            if !n.is_empty() && !is_e164(n) {
+                return Err(AppError::InvalidInput(format!(
+                    "phone.{what} must be in international format, e.g. +15551234567"
+                )));
+            }
+        }
+        if ph.enabled
+            && (ph.account_sid.is_empty() || ph.from_number.is_empty() || ph.to_number.is_empty())
+        {
+            return bad("to enable the phone, fill in the account SID and both numbers");
+        }
+        if !(1..=60).contains(&ph.max_per_hour) {
+            return bad("phone.max_per_hour must be between 1 and 60");
+        }
         if !(0.0..=1.0).contains(&self.memory.recall_min_score) {
             return bad("memory.recall_min_score must be between 0 and 1");
         }
@@ -673,6 +748,19 @@ impl Settings {
                 "Save an AI-written summary of each cleared conversation to long-term memory"
                     .into(),
             );
+        }
+        // Phone: message text leaves the machine (Twilio), even in local-only
+        // mode, and a changed recipient would redirect every alert.
+        if new.phone.enabled
+            && (!self.phone.enabled
+                || self.phone.to_number != new.phone.to_number
+                || self.phone.from_number != new.phone.from_number
+                || self.phone.account_sid != new.phone.account_sid)
+        {
+            out.push(format!(
+                "Send texts and calls to {} through Twilio (message text leaves this computer, even in local-only mode)",
+                new.phone.to_number
+            ));
         }
         // Retention deletes data: turning it on or shortening it is confirmed.
         let (old_days, new_days) = (self.memory.retention_days, new.memory.retention_days);
@@ -977,6 +1065,31 @@ mod tests {
         assert!(old.security_changes(&new).is_empty());
         new.memory.retention_days = 30;
         assert_eq!(old.security_changes(&new).len(), 1);
+    }
+
+    #[test]
+    fn phone_settings_are_validated_and_confirmed() {
+        assert!(is_e164("+13145550100"));
+        assert!(!is_e164("3145550100"));
+        assert!(!is_e164("+0123456789"));
+        assert!(!is_e164("+1314555abcd"));
+        assert!(is_twilio_sid(&format!("AC{}", "0a".repeat(16))));
+        assert!(!is_twilio_sid("AC../../evil"));
+
+        let old = Settings::default();
+        let mut new = old.clone();
+        new.phone.enabled = true;
+        assert!(new.validate().is_err(), "enabled without numbers");
+        new.phone.account_sid = format!("AC{}", "0a".repeat(16));
+        new.phone.from_number = "+13145550100".into();
+        new.phone.to_number = "+13145550101".into();
+        assert!(new.validate().is_ok());
+        assert_eq!(old.security_changes(&new).len(), 1);
+        // Redirecting to another number while enabled is confirmed again.
+        let mut moved = new.clone();
+        moved.phone.to_number = "+13145550199".into();
+        assert_eq!(new.security_changes(&moved).len(), 1);
+        assert!(new.security_changes(&new.clone()).is_empty());
     }
 
     #[test]
