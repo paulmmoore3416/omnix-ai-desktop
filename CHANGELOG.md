@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Docs
+
+- `docs/REMOTE_ACCESS.md`: proposed design for using OMNIX from a phone over Tailscale (gateway inside the Rust
+  backend, QR pairing with hardware-held device keys, WebSocket API, desk-only approvals first). Nothing is built yet.
+
 ### Memory hardening (external design review)
 
 **Changed**
