@@ -361,10 +361,18 @@ keyword-only for now (nothing is lost; it catches up by itself).
   memory was reinforced"* instead of getting a duplicate.
 - Each memory shows its **category**, **importance stars**, and **where it came from**:
   ✍️ you · 🤖 assistant (the AI saved it because you asked) · 🧠 learned (from a conversation) · 📥 imported.
-- 🔁 *n* = how many times you've said it again; 👁 *n* = how many times OMNIX recalled it.
+- 🔁 *n* = how many times you've said it again; 👁 *n* = how many times it was looked up on purpose (by the
+  assistant's memory search). The automatic recall before each reply doesn't count, so a memory can't make itself
+  stronger just by being recalled.
 - The small bar on the right is how **present** the memory is. Important, recent and often-used memories are strong;
   old, unused ones slowly fade (they're never deleted by fading, just ranked lower).
-- 📌 **Pin** a memory so it never fades. 🗑️ deletes it.
+- 📌 **Pin** a memory so it never fades. 🗑️ deletes it. Fading only changes the order: an old memory that answers
+  your question is still recalled.
+- **🗂 Merged & replaced memories** (at the bottom) lists memories OMNIX hid because the local model decided they
+  duplicated another one (🔀 *merged*) or that a newer fact replaced them (⏭ *replaced*). Nothing there is deleted.
+  If the model got it wrong, press **↩ Restore** and the memory comes back exactly as it was. If it was right, press
+  **✓ Keep**. New decisions are listed first, and until you've checked them a yellow banner at the top of the
+  Knowledge view says how many are waiting (Analytics shows the same count as *Awaiting your review*).
 
 ### 📄 Documents
 

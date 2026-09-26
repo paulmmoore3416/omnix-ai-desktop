@@ -11,6 +11,7 @@ import http.client
 import json
 import os
 import re
+import sqlite3
 import tempfile
 import threading
 import time
@@ -594,7 +595,8 @@ class CollectionTests(Base):
         kb = KnowledgeBase(Config(db_path=path), FakeEmbedder())
         self.addCleanup(kb.close)
         self.assertEqual(kb.list_memories()[0]["collection"], "default")
-        self.assertEqual(kb.db.execute("PRAGMA user_version").fetchone()[0], 2)
+        self.assertFalse(kb.list_memories()[0]["reviewed"], "v1 → v2 → v3 in one open")
+        self.assertEqual(kb.db.execute("PRAGMA user_version").fetchone()[0], 3)
         kb.backfill()
         self.assertEqual(kb.search("old fact")["results"][0]["id"], "m_old", "FTS still works after migration")
 
@@ -680,3 +682,168 @@ class ApiExtensionTests(Base):
         text = prometheus(self.kb)
         self.assertIn("kb_core_searches_total 1", text)
         self.assertIn('kb_core_items{kind="memory"} 0', text)
+
+
+class ReviewHardeningTests(Base):
+    """Merges are reversible, decay never filters, hits carry provenance."""
+
+    def test_llm_merge_is_soft_and_restorable(self) -> None:
+        old = self.kb.save_memory("Paul likes meetings in the morning", ["cal"], 8)
+        kb = self.reopen(chat=FakeChat({"duplicate": [1], "obsolete": []}))
+        new = kb.save_memory("Paul prefers morning meetings, before 10am", ["prefs"], 5)
+        kb._judge_related(*kb._jobs.get_nowait()[1])
+        # Hidden from the live list and from search, but not deleted.
+        self.assertEqual([m["id"] for m in kb.list_memories()], [new["id"]])
+        self.assertNotIn(old["id"], [h["id"] for h in kb.search("morning meetings")["results"]])
+        hidden = kb.get_memory(old["id"])
+        self.assertEqual((hidden["superseded_by"], hidden["hidden_reason"]), (new["id"], "merged"))
+        self.assertEqual(hidden["content"], "Paul likes meetings in the morning")
+        [h] = kb.list_memories(hidden_only=True)
+        self.assertEqual((h["id"], h["hidden_reason"]), (old["id"], "merged"))
+        # Undo the ruling: the original comes back unchanged.
+        kb.update_memory(old["id"], {"superseded_by": None})
+        restored = kb.get_memory(old["id"])
+        self.assertIsNone(restored["superseded_by"])
+        self.assertIsNone(restored["hidden_reason"])
+        self.assertEqual(restored["tags"], ["cal"])
+        self.assertFalse([l for l in restored["links"] if l["kind"] == "merged"])
+        self.assertEqual(kb.list_memories(hidden_only=True), [])
+
+    def test_deleting_the_survivor_restores_merged_memory(self) -> None:
+        old = self.kb.save_memory("Paul likes meetings in the morning")
+        kb = self.reopen(chat=FakeChat({"duplicate": [1], "obsolete": []}))
+        new = kb.save_memory("Paul prefers morning meetings, before 10am")
+        kb._judge_related(*kb._jobs.get_nowait()[1])
+        kb.delete_memory(new["id"])
+        self.assertEqual([m["id"] for m in kb.list_memories()], [old["id"]])
+
+    def test_maintenance_merge_is_soft(self) -> None:
+        a = self.kb.save_memory("Paul uses Neovim daily", ["a"], consolidate=False)
+        b = self.kb.save_memory("paul uses neovim daily", ["b"], 9, consolidate=False)
+        self.assertEqual(self.kb.maintenance()["merged_duplicates"], 1)
+        self.assertEqual(self.kb.get_memory(b["id"])["superseded_by"], a["id"])
+        self.assertEqual(self.kb.stats()["memories"], 1)
+        # A second pass doesn't re-merge what is already hidden.
+        self.assertEqual(self.kb.maintenance()["merged_duplicates"], 0)
+
+    def test_hidden_reason_distinguishes_superseded(self) -> None:
+        old = self.kb.save_memory("Paul's favourite editor is Vim")
+        kb = self.reopen(chat=FakeChat({"duplicate": [], "obsolete": [1]}))
+        kb.save_memory("Paul's favourite editor is now VS Code, not Vim")
+        kb._judge_related(*kb._jobs.get_nowait()[1])
+        self.assertEqual(kb.get_memory(old["id"])["hidden_reason"], "superseded")
+
+    def test_import_skips_hidden_history(self) -> None:
+        old = self.kb.save_memory("Paul likes meetings in the morning")
+        kb = self.reopen(chat=FakeChat({"duplicate": [1], "obsolete": []}))
+        kb.save_memory("Paul prefers morning meetings, before 10am")
+        kb._judge_related(*kb._jobs.get_nowait()[1])
+        recs = list(kb.export())
+        self.assertTrue(any(r.get("id") == old["id"] for r in recs), "history is still exported")
+        other = KnowledgeBase(Config(db_path=Path(self.tmp.name) / "b.sqlite3"), FakeEmbedder())
+        self.addCleanup(other.close)
+        counts = other.import_records(recs)
+        self.assertEqual((counts["memories_created"], counts["history_skipped"]), (1, 1))
+
+    def test_faded_memory_is_not_filtered_by_decay(self) -> None:
+        m = self.kb.save_memory("Paul's anniversary is October 12", importance=2)["id"]
+        self.kb.save_memory("The staging cluster runs Kubernetes")
+        # Three years untouched: activation is near its floor.
+        self.kb.db.execute("UPDATE items SET created_at = '2023-01-01T00:00:00Z', "
+                           "updated_at = '2023-01-01T00:00:00Z', last_accessed = NULL WHERE id = ?", (m,))
+        [hit] = [h for h in self.kb.search("anniversary October", track=False)["results"] if h["id"] == m]
+        self.assertLess(hit["explain"]["rank_score"], hit["score"], "activation still lowers the ordering key")
+        cut = (hit["explain"]["rank_score"] + hit["score"]) / 2  # above the decayed rank, below relevance
+        again = self.kb.search("anniversary October", min_score=cut, track=False)["results"]
+        self.assertIn(m, [h["id"] for h in again], "the cut-off uses relevance, not decayed rank")
+
+    def test_vivid_memory_ranks_first_among_equals(self) -> None:
+        faded = self.kb.save_memory("Backups go to the NAS nightly", importance=2)["id"]
+        vivid = self.kb.save_memory("Backups go to the NAS nightly with zstd", importance=10)["id"]
+        self.kb.db.execute("UPDATE items SET created_at = '2023-01-01T00:00:00Z', "
+                           "updated_at = '2023-01-01T00:00:00Z' WHERE id = ?", (faded,))
+        ids = [h["id"] for h in self.kb.search("backups NAS nightly", track=False)["results"]]
+        self.assertEqual(ids[0], vivid)
+
+    def test_hits_carry_origin(self) -> None:
+        self.kb.save_memory("Paul's NAS is at 10.0.0.5", source="user")
+        self.kb.save_memory("The NAS runs TrueNAS SCALE", source="assistant")
+        self.kb.index_document("nas.md", "# NAS\nThe NAS exports an NFS share for backups.")
+        got = {h["content"].split("\n")[0]: h["origin"] for h in self.kb.search("NAS", limit=10)["results"]}
+        self.assertEqual(got["Paul's NAS is at 10.0.0.5"], "user")
+        self.assertEqual(got["The NAS runs TrueNAS SCALE"], "assistant")
+        self.assertEqual(got["nas.md › NAS"], "document")
+
+    def test_http_hidden_only(self) -> None:
+        old = self.kb.save_memory("Paul likes meetings in the morning")
+        kb = self.reopen(chat=FakeChat({"duplicate": [1], "obsolete": []}))
+        kb.save_memory("Paul prefers morning meetings, before 10am")
+        kb._judge_related(*kb._jobs.get_nowait()[1])
+        status, body = Api(kb).dispatch("GET", "/memories", {"hidden_only": ["true"]}, None)
+        self.assertEqual(status, 200)
+        self.assertEqual([m["id"] for m in body["memories"]], [old["id"]])
+
+
+class ReviewQueueTests(Base):
+    """Model rulings stay soft and count as "needs review" until the user
+    keeps or restores them."""
+
+    def _merged_pair(self) -> tuple[KnowledgeBase, str, str]:
+        old = self.kb.save_memory("Paul likes meetings in the morning")["id"]
+        kb = self.reopen(chat=FakeChat({"duplicate": [1], "obsolete": []}))
+        new = kb.save_memory("Paul prefers morning meetings, before 10am")["id"]
+        kb._judge_related(*kb._jobs.get_nowait()[1])
+        return kb, old, new
+
+    def test_new_rulings_need_review_and_keep_clears_it(self) -> None:
+        kb, old, _ = self._merged_pair()
+        self.assertEqual(kb.stats()["needs_review"], 1)
+        self.assertFalse(kb.get_memory(old)["reviewed"])
+        kept = kb.update_memory(old, {"reviewed": True})
+        self.assertTrue(kept["reviewed"])
+        self.assertIsNotNone(kept["superseded_by"], "keeping the ruling leaves the memory hidden")
+        self.assertEqual(kb.stats()["needs_review"], 0)
+        self.assertEqual(kb.list_memories(hidden_only=True)[0]["reviewed"], True)
+
+    def test_restore_resets_review_and_a_new_ruling_needs_review_again(self) -> None:
+        kb, old, new = self._merged_pair()
+        kb.update_memory(old, {"reviewed": True})
+        kb.update_memory(old, {"superseded_by": None})
+        self.assertFalse(kb.get_memory(old)["reviewed"])
+        kb._judge_related(new, [old])  # the model merges it again
+        self.assertEqual(kb.stats()["needs_review"], 1)
+
+    def test_superseded_rulings_need_review_too(self) -> None:
+        old = self.kb.save_memory("Paul's favourite editor is Vim")["id"]
+        kb = self.reopen(chat=FakeChat({"duplicate": [], "obsolete": [1]}))
+        kb.save_memory("Paul's favourite editor is now VS Code, not Vim")
+        kb._judge_related(*kb._jobs.get_nowait()[1])
+        self.assertEqual(kb.stats()["needs_review"], 1)
+        self.assertFalse(kb.get_memory(old)["reviewed"])
+
+    def test_reviewed_is_validated(self) -> None:
+        live = self.kb.save_memory("Paul drives a Tacoma")["id"]
+        with self.assertRaises(BadRequest):
+            self.kb.update_memory(live, {"reviewed": True})  # nothing to review
+        kb, old, _ = self._merged_pair()
+        with self.assertRaises(BadRequest):
+            kb.update_memory(old, {"reviewed": "yes"})
+        with self.assertRaises(BadRequest):
+            kb.update_memory(old, {"reviewed": True, "superseded_by": None})
+
+    def test_http_patch_reviewed(self) -> None:
+        kb, old, _ = self._merged_pair()
+        status, body = Api(kb).dispatch("PATCH", f"/memories/{old}", {}, {"reviewed": True})
+        self.assertEqual((status, body["reviewed"]), (200, True))
+
+    def test_v2_database_migrates(self) -> None:
+        m = self.kb.save_memory("Paul drives a Tacoma")["id"]
+        self.kb.close()
+        db = sqlite3.connect(self.cfg.db_path)
+        db.execute("ALTER TABLE items DROP COLUMN reviewed")
+        db.execute("PRAGMA user_version = 2")
+        db.commit()
+        db.close()
+        kb = self.reopen()
+        self.assertFalse(kb.get_memory(m)["reviewed"])
+        self.assertEqual(kb.db.execute("PRAGMA user_version").fetchone()[0], 3)

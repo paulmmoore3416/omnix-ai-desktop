@@ -107,6 +107,11 @@ pub struct SearchHit {
     /// Knowledge base (kb-core collection).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collection: Option<String>,
+    /// Provenance (kb-core extension): `user`, `extract`, `assistant`,
+    /// `import` for memories, `document` for note chunks. Drives the trust
+    /// label in the recall block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
 }
 
 /// Result of [`MemoryStore::index_document`].
@@ -181,6 +186,11 @@ pub trait MemoryStore: Send + Sync {
     /// Remove an indexed document.
     async fn delete_document(&self, _id: &str) -> AppResult<()> {
         Err(AppError::NotImplemented("document deletion"))
+    }
+    /// Merged and superseded memories (hidden from recall, restorable),
+    /// newest first.
+    async fn list_hidden(&self, _limit: u32) -> AppResult<Vec<Value>> {
+        Err(AppError::NotImplemented("memory history"))
     }
     /// Edit, pin or restore a memory.
     async fn update_memory(&self, _id: &str, _patch: Value) -> AppResult<Value> {

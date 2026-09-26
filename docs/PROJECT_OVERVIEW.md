@@ -9,7 +9,7 @@
 | **AI** | Ollama (local, default) · Anthropic · OpenAI-compatible providers · MCP tools |
 | **Memory** | kb-core: local long-term memory engine (Python, SQLite FTS5 + vectors, Ollama embeddings) |
 | **Codebase** | ~18.8k lines of Rust, ~6.6k lines of TypeScript/Svelte, ~3.2k lines of Python (kb-core) |
-| **Quality gates** | 144 Rust tests · 27 Vitest tests · 46 kb-core tests · `clippy -D warnings` · `svelte-check` 0/0 · `cargo audit` / `npm audit` clean |
+| **Quality gates** | 148 Rust tests · 29 Vitest tests · 61 kb-core tests · `clippy -D warnings` · `svelte-check` 0/0 · `cargo audit` / `npm audit` clean |
 | **License** | MIT |
 | **Author** | Paul Moore, Moore Core Technologies |
 
@@ -157,7 +157,7 @@ An SVG holographic core that makes the assistant's state readable at a glance:
   keyword coverage, personalised first-person → third-person query variants, and MMR diversity.
 - **Memory dynamics**: activation from importance, recency (half-life), recall frequency and reinforcement; pinning.
 - **Contradiction-aware consolidation**: near-verbatim duplicates reinforce; similar pairs are judged by the local LLM
-  as duplicate (merged) or obsolete (superseded, reversible).
+  as duplicate (merged) or obsolete (superseded); both are soft and restorable from the Knowledge view.
 - **Live folder sync** with incremental, hash-based re-embedding; structure-aware Markdown chunking.
 - **Resilient**: writes succeed while the embedding model is down (backfilled later); embedding-model changes
   re-embed in the background.
@@ -218,12 +218,12 @@ desktop agents:
 
 ## 7. Quality & delivery
 
-- Rust: 144 tests (plus 2 opt-in live tests) covering policy bypass attempts, audit-chain tampering, secret migration, stream parsers for all
+- Rust: 148 tests (plus 2 opt-in live tests) covering policy bypass attempts, audit-chain tampering, secret migration, stream parsers for all
   three provider families, an MCP stdio end-to-end test, executor timeouts and env clearing, and memory recall-block
   escaping.
-- Frontend: 27 Vitest + Testing Library tests (API/error helpers, write-only secret field, disabled-state UI,
+- Frontend: 29 Vitest + Testing Library tests (API/error helpers, write-only secret field, disabled-state UI,
   Knowledge view, Markdown sanitizer, WAV encoder, resampler, mic-error mapping).
-- kb-core: 46 offline tests (fake embedder and LLM), run in CI with and without numpy.
+- kb-core: 61 offline tests (fake embedder and LLM), run in CI with and without numpy.
 - CI: GitHub Actions with SHA-pinned actions, a three-OS build matrix, secret scanning, and dependency audits.
   Tag-triggered draft releases.
 - Deployment: `scripts/bootstrap.sh` sets up a fresh Ubuntu/Debian machine end to end (toolchains, Ollama + models

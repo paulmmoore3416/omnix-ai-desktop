@@ -83,6 +83,7 @@ pub async fn get_knowledge_data(state: State<'_, AppState>) -> AppResult<Value> 
         "embedError": s.get("embed_error").cloned().unwrap_or(Value::Null),
         "pendingEmbeddings": num("pending_embeddings"),
         "superseded": num("superseded"),
+        "needsReview": num("needs_review"),
         "links": num("links"),
         "categories": s.get("categories").cloned().unwrap_or(json!({})),
         "sources": s.get("sources").cloned().unwrap_or(json!({})),
@@ -141,19 +142,41 @@ pub async fn delete_memory(state: State<'_, AppState>, id: String) -> AppResult<
     memory::require(&state).await?.delete(&id).await
 }
 
-/// Pin/unpin, re-categorize, or restore a superseded memory. Only these
-/// fields are forwarded; anything else is refused.
+/// Merged and superseded memories: hidden from recall but kept, so a wrong
+/// consolidation ruling can be reviewed and undone (restore = `update_memory`
+/// with `superseded_by: null`).
+#[tauri::command]
+pub async fn list_hidden_memories(state: State<'_, AppState>, limit: u32) -> AppResult<Vec<Value>> {
+    memory::require(&state).await?.list_hidden(limit).await
+}
+
+/// Pin/unpin, re-categorize, restore a merged/superseded memory, or keep the
+/// model's ruling (`reviewed: true`). Only these fields are forwarded;
+/// anything else is refused.
 #[tauri::command]
 pub async fn update_memory(
     state: State<'_, AppState>,
     id: String,
     patch: Map<String, Value>,
 ) -> AppResult<Value> {
+    let clean = clean_memory_patch(patch)?;
+    memory::require(&state)
+        .await?
+        .update_memory(&id, Value::Object(clean))
+        .await
+}
+
+/// The webview is untrusted: forward only known memory fields with
+/// well-formed values, and refuse the whole patch otherwise.
+fn clean_memory_patch(patch: Map<String, Value>) -> AppResult<Map<String, Value>> {
     let mut clean = Map::new();
     for (k, v) in patch {
         let ok = match k.as_str() {
             "pinned" => v.is_boolean(),
+            // Restoring is the only change allowed: hiding a memory is a
+            // consolidation decision, never something the UI can set.
             "superseded_by" => v.is_null(),
+            "reviewed" => v.is_boolean(),
             "importance" => v.as_u64().is_some_and(|n| (1..=10).contains(&n)),
             "category" => v.as_str().is_some_and(|s| s.len() <= 64),
             "tags" => v.as_array().is_some_and(|a| {
@@ -171,10 +194,7 @@ pub async fn update_memory(
         }
         clean.insert(k, v);
     }
-    memory::require(&state)
-        .await?
-        .update_memory(&id, Value::Object(clean))
-        .await
+    Ok(clean)
 }
 
 /// Semantic search in kb-core.
@@ -448,6 +468,20 @@ pub async fn optimize_vector_db(state: State<'_, AppState>) -> AppResult<Value> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn memory_patch_whitelist() {
+        let ok = |v: Value| clean_memory_patch(v.as_object().cloned().expect("object"));
+        assert!(ok(json!({"reviewed": true})).is_ok());
+        assert!(ok(json!({"superseded_by": null, "pinned": false})).is_ok());
+        assert!(ok(json!({"reviewed": "yes"})).is_err());
+        assert!(
+            ok(json!({"superseded_by": "m_other"})).is_err(),
+            "the UI can't hide memories"
+        );
+        assert!(ok(json!({"importance": 11})).is_err());
+        assert!(ok(json!({"vec": [0.1]})).is_err());
+    }
 
     #[test]
     fn ndjson_parsing() {

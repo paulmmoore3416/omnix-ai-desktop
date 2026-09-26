@@ -99,14 +99,14 @@ for the threat model. The story behind it: [`docs/articles/medium-omnix-kb-core.
 
 ## Test & quality snapshot
 
-- Rust: 144 unit tests, including policy bypass attempts, audit-chain
+- Rust: 148 unit tests, including policy bypass attempts, audit-chain
   tampering, secret migration, stream parsers (Ollama/Anthropic/OpenAI), an
   MCP stdio end-to-end test, executor timeouts/env clearing and memory
   recall-block escaping, HMAC approvals and settings validation. Plus opt-in
   live tests (Ollama, host probes).
-- Frontend: 27 Vitest tests (API/error helpers, write-only secret field,
+- Frontend: 29 Vitest tests (API/error helpers, write-only secret field,
   disabled-state UI, Knowledge view, markdown sanitizer, voice helpers, WAV encoder).
-- kb-core: 46 offline tests (consolidation, supersession, outage/backfill,
+- kb-core: 61 offline tests (consolidation, supersession, outage/backfill,
   model change, personalisation, incremental re-index, HTTP guards), run in
   CI with and without numpy.
 - `cargo clippy -D warnings`, `svelte-check` with 0 errors and 0 warnings,
