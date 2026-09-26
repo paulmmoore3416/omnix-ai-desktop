@@ -307,7 +307,7 @@ admin commands, adding a new server) asks you to confirm in a pop-up.
 | **MemResort** | Connect the optional MemResort memory service |
 | **MCP Servers** | Add extra tools for the AI through the Model Context Protocol. Each tool call is checked and logged |
 | **Voice** | Speech-to-text server, Whisper model, language, Piper read-aloud, and **Test microphone** |
-| **Memory** | The memory service URL, **Recall automatically** (on), how many entries to recall and how relevant they must be, **Learn from conversations** (off; asks you to confirm when you turn it on), and **Archive conversations** (on: a searchable copy of your chats) |
+| **Memory** | The memory service URL, **Recall automatically** (on), how many entries to recall and how relevant they must be, **Learn from conversations** (off; asks you to confirm when you turn it on), **Archive conversations** (on: a searchable copy of your chats), **Summarize conversations** (off: when you clear a chat, save a short summary as a memory), **Semantic search** (on; off = match words only), **Memory limit** (1000; when full, new memories are refused, nothing is deleted for you) and **Keep archived conversations** (0 = forever; older chat transcripts are deleted daily) |
 | **Security** | Local-only mode, admin commands, autonomous mode, blocked commands, audit-log verification |
 | **Performance** | Performance-related options |
 

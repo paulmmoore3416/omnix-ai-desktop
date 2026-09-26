@@ -104,6 +104,21 @@ pub fn run() {
                     tracing::warn!(error = %e, "audit shipping not enabled");
                 }
             });
+            // `memory.retention_days`: prune old archived conversations
+            // shortly after start, then once a day.
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+                loop {
+                    let state = handle.state::<state::AppState>();
+                    match memory::prune_conversations(&state).await {
+                        Ok(0) => {}
+                        Ok(n) => tracing::info!(removed = n, "pruned archived conversations"),
+                        Err(e) => tracing::debug!(error = %e, "conversation retention skipped"),
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
+                }
+            });
             // The updater plugin is intentionally NOT registered until release
             // signing is configured (see docs/ARCHITECTURE.md).
 

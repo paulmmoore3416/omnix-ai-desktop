@@ -17,16 +17,21 @@ pub struct KbCoreStore {
     http: reqwest::Client,
     base: String,
     token: Option<String>,
+    /// kb-core search mode: `hybrid` (semantic + keyword) or `keyword`
+    /// (`memory.enable_semantic_search` off).
+    mode: &'static str,
 }
 
 impl KbCoreStore {
     /// `base` is `memory.backend_url` (endpoint policy checked by the caller);
-    /// `token` is the optional bearer token from the keychain (`kb_core`).
-    pub fn new(http: reqwest::Client, base: &str, token: Option<String>) -> Self {
+    /// `token` is the optional bearer token from the keychain (`kb_core`);
+    /// `semantic` false makes every search keyword-only.
+    pub fn new(http: reqwest::Client, base: &str, token: Option<String>, semantic: bool) -> Self {
         Self {
             http,
             base: base.trim_end_matches('/').to_string(),
             token,
+            mode: if semantic { "hybrid" } else { "keyword" },
         }
     }
 
@@ -136,6 +141,20 @@ impl MemoryStore for KbCoreStore {
         Ok(format!("kb-core is reachable at {}", self.base))
     }
 
+    async fn memory_count(&self) -> AppResult<Option<u64>> {
+        // The bundled service reports active (not merged/superseded)
+        // memories in /health; a contract-only service may not.
+        let v: Value = self
+            .send(
+                self.req(reqwest::Method::GET, "/health")
+                    .timeout(Duration::from_secs(5)),
+            )
+            .await?
+            .json()
+            .await?;
+        Ok(v.get("memories").and_then(Value::as_u64))
+    }
+
     async fn list(&self, limit: u32) -> AppResult<Vec<MemoryRecord>> {
         let r = self
             .send(
@@ -163,8 +182,9 @@ impl MemoryStore for KbCoreStore {
     async fn search(&self, query: &str, limit: u32) -> AppResult<Vec<SearchHit>> {
         let r = self
             .send(
-                self.req(reqwest::Method::POST, "/search")
-                    .json(&json!({ "query": query, "limit": limit.clamp(1, 50) })),
+                self.req(reqwest::Method::POST, "/search").json(
+                    &json!({ "query": query, "limit": limit.clamp(1, 50), "mode": self.mode }),
+                ),
             )
             .await?;
         Ok(r.json::<SearchResp>().await?.results)
@@ -173,7 +193,7 @@ impl MemoryStore for KbCoreStore {
     async fn search_kind(&self, query: &str, limit: u32, kind: &str) -> AppResult<Vec<SearchHit>> {
         let r = self
             .send(self.req(reqwest::Method::POST, "/search").json(&json!({
-                "query": query, "limit": limit.clamp(1, 50), "kinds": [kind]
+                "query": query, "limit": limit.clamp(1, 50), "kinds": [kind], "mode": self.mode
             })))
             .await?;
         let mut hits = r.json::<SearchResp>().await?.results;
@@ -188,7 +208,7 @@ impl MemoryStore for KbCoreStore {
         let r = self
             .send(
                 self.req(reqwest::Method::POST, "/search")
-                    .json(&recall_body(query, limit, min_score)),
+                    .json(&recall_body(query, limit, min_score, self.mode)),
             )
             .await?;
         let mut hits = r.json::<SearchResp>().await?.results;
@@ -204,7 +224,8 @@ impl MemoryStore for KbCoreStore {
     ) -> AppResult<Vec<SearchHit>> {
         let r = self
             .send(self.req(reqwest::Method::POST, "/search").json(&json!({
-                "query": query, "limit": limit.clamp(1, 50), "collections": [collection]
+                "query": query, "limit": limit.clamp(1, 50), "collections": [collection],
+                "mode": self.mode
             })))
             .await?;
         Ok(r.json::<SearchResp>().await?.results)
@@ -407,9 +428,9 @@ impl MemoryStore for KbCoreStore {
 }
 
 /// Request body for automatic recall.
-fn recall_body(query: &str, limit: u32, min_score: f32) -> Value {
+fn recall_body(query: &str, limit: u32, min_score: f32, mode: &str) -> Value {
     json!({
-        "query": query, "limit": limit.clamp(1, 50), "min_score": min_score,
+        "query": query, "limit": limit.clamp(1, 50), "min_score": min_score, "mode": mode,
         // The archive of the current conversation would only echo it.
         "exclude_collections": ["conversations"],
         // Auto-recall runs on every message, so counting its hits as "use"
@@ -442,8 +463,9 @@ mod tests {
 
     #[test]
     fn auto_recall_does_not_count_as_use() {
-        let b = recall_body("what editor do I use", 99, 0.4);
+        let b = recall_body("what editor do I use", 99, 0.4, "keyword");
         assert_eq!(b["track"], false);
+        assert_eq!(b["mode"], "keyword");
         assert_eq!(b["limit"], 50);
         assert_eq!(b["exclude_collections"], json!(["conversations"]));
     }

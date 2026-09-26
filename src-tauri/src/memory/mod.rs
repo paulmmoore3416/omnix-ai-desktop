@@ -166,6 +166,13 @@ pub trait MemoryStore: Send + Sync {
         self.search(query, limit).await
     }
 
+    /// Number of active memories, if the service reports it (kb-core:
+    /// `/health`). `None` means unknown, and `max_memory_size` can't be
+    /// enforced against that service.
+    async fn memory_count(&self) -> AppResult<Option<u64>> {
+        Ok(None)
+    }
+
     /// Search only one kind of result (`memory` or `document`). kb-core
     /// filters server-side (`kinds` extension); other services are searched
     /// normally and filtered here (a hit without a kind is a memory).
@@ -269,6 +276,7 @@ pub async fn from_state(state: &crate::state::AppState) -> AppResult<Option<Box<
         state.http.clone(),
         &url,
         token,
+        settings.memory.enable_semantic_search,
     ))))
 }
 
@@ -279,4 +287,144 @@ pub async fn require(state: &crate::state::AppState) -> AppResult<Box<dyn Memory
             "long-term memory is not configured: set a kb-core URL in Settings → Memory".into(),
         )
     })
+}
+
+/// Refuse a new memory when `memory.max_memory_size` (0 = unlimited) is
+/// reached. Deleting old memories never happens behind the user's back: they
+/// choose what to remove in the Knowledge view or raise the limit.
+pub async fn check_capacity(
+    state: &crate::state::AppState,
+    store: &dyn MemoryStore,
+) -> AppResult<()> {
+    let max = state.settings.read().await.memory.max_memory_size;
+    let count = store.memory_count().await?;
+    capacity_error(count, max).map_or(Ok(()), Err)
+}
+
+fn capacity_error(count: Option<u64>, max: u32) -> Option<AppError> {
+    match count {
+        Some(n) if max > 0 && n >= u64::from(max) => Some(AppError::InvalidInput(format!(
+            "long-term memory is full ({n} of {max} memories). Delete memories in the Knowledge \
+             view or raise the limit in Settings → Memory"
+        ))),
+        _ => None,
+    }
+}
+
+/// Archived conversation transcripts (`conversations` collection) whose last
+/// update is older than `memory.retention_days` (0 = keep forever).
+/// Memories and the user's own documents are never pruned by age.
+pub fn expired_conversations(
+    documents: &[Value],
+    retention_days: u32,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Vec<(String, String)> {
+    if retention_days == 0 {
+        return vec![];
+    }
+    let cutoff = now - chrono::Duration::days(i64::from(retention_days));
+    documents
+        .iter()
+        .filter(|d| d.get("collection").and_then(Value::as_str) == Some("conversations"))
+        .filter_map(|d| {
+            let when = d
+                .get("updated_at")
+                .or_else(|| d.get("created_at"))
+                .and_then(Value::as_str)
+                .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())?;
+            if when >= cutoff {
+                return None;
+            }
+            let id = d.get("id").and_then(Value::as_str)?.to_string();
+            let name = d.get("name").and_then(Value::as_str).unwrap_or("");
+            Some((id, name.to_string()))
+        })
+        .collect()
+}
+
+/// Apply `memory.retention_days` to the conversation archive. Deletions
+/// are audited. Returns how many transcripts were removed.
+pub async fn prune_conversations(state: &crate::state::AppState) -> AppResult<usize> {
+    use crate::security::audit::{AuditRecord, Confirmation, Decision};
+    use crate::security::policy::{RiskTier, Source};
+
+    let days = state.settings.read().await.memory.retention_days;
+    if days == 0 {
+        return Ok(0);
+    }
+    let Some(store) = from_state(state).await? else {
+        return Ok(0);
+    };
+    let expired = expired_conversations(&store.list_documents().await?, days, chrono::Utc::now());
+    let mut removed = 0;
+    let mut failed = Vec::new();
+    for (id, name) in &expired {
+        match store.delete_document(id).await {
+            Ok(()) => removed += 1,
+            Err(e) => failed.push(format!("{name}: {e}")),
+        }
+    }
+    if !expired.is_empty() {
+        state
+            .audit
+            .record(AuditRecord {
+                id: uuid::Uuid::new_v4().to_string(),
+                // Carries out the retention period the user set.
+                source: Source::User,
+                action: "memory_retention".into(),
+                command: format!(
+                    "delete {} archived conversations older than {days} days",
+                    expired.len()
+                ),
+                cwd: None,
+                tier: RiskTier::Mutating,
+                decision: if failed.is_empty() {
+                    Decision::Allowed
+                } else {
+                    Decision::Failed
+                },
+                confirmation: Confirmation::NotRequired,
+                exit_code: None,
+                duration_ms: None,
+                detail: Some(format!("{removed} removed; {} failed", failed.len())),
+            })
+            .await?;
+    }
+    for f in failed {
+        tracing::warn!(error = %f, "could not prune archived conversation");
+    }
+    Ok(removed)
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn only_old_conversations_expire() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-09-26T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let docs = vec![
+            json!({"id": "d1", "name": "old chat", "collection": "conversations", "updated_at": "2026-06-01T00:00:00Z"}),
+            json!({"id": "d2", "name": "new chat", "collection": "conversations", "updated_at": "2026-09-20T00:00:00Z"}),
+            json!({"id": "d3", "name": "old notes", "collection": "default", "updated_at": "2020-01-01T00:00:00Z"}),
+            json!({"id": "d4", "name": "no date", "collection": "conversations"}),
+        ];
+        let ids: Vec<String> = expired_conversations(&docs, 90, now)
+            .into_iter()
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(ids, vec!["d1"]);
+        assert!(expired_conversations(&docs, 0, now).is_empty());
+    }
+
+    #[test]
+    fn capacity_is_enforced_only_when_known_and_limited() {
+        assert!(capacity_error(Some(10), 10).is_some());
+        assert!(capacity_error(Some(9), 10).is_none());
+        assert!(capacity_error(Some(10_000), 0).is_none());
+        assert!(capacity_error(None, 1).is_none());
+    }
 }

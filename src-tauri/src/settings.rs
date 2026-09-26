@@ -295,13 +295,16 @@ pub struct MemorySettings {
     /// long-term memory as a searchable transcript in the `conversations`
     /// collection. Excluded from automatic recall.
     pub archive_conversations: bool,
-    /// Maximum stored memories.
+    /// Maximum active memories (0 = unlimited). New memories are refused
+    /// when it is reached; nothing is deleted automatically.
     pub max_memory_size: u32,
-    /// Summarize conversations automatically.
+    /// When a conversation is cleared, have the chat model summarize it and
+    /// save the summary as a memory (tagged `source: assistant`).
     pub auto_summarize: bool,
-    /// Retention in days.
+    /// Delete archived conversation transcripts older than this many days
+    /// (0 = keep forever). Memories and documents are never pruned by age.
     pub retention_days: u32,
-    /// Enable semantic search.
+    /// Semantic + keyword (hybrid) search; off = keyword-only.
     pub enable_semantic_search: bool,
 }
 
@@ -316,7 +319,7 @@ impl Default for MemorySettings {
             archive_conversations: true,
             max_memory_size: 1000,
             auto_summarize: false,
-            retention_days: 90,
+            retention_days: 0,
             enable_semantic_search: true,
         }
     }
@@ -434,6 +437,12 @@ impl Settings {
         }
         if !(1..=10).contains(&self.memory.recall_limit) {
             return bad("memory.recall_limit must be between 1 and 10");
+        }
+        if self.memory.max_memory_size > 1_000_000 {
+            return bad("memory.max_memory_size must be at most 1000000 (0 = unlimited)");
+        }
+        if self.memory.retention_days > 36_500 {
+            return bad("memory.retention_days must be at most 36500 (0 = keep forever)");
         }
         if !(0.0..=1.0).contains(&self.memory.recall_min_score) {
             return bad("memory.recall_min_score must be between 0 and 1");
@@ -658,6 +667,19 @@ impl Settings {
         }
         if new.memory.auto_capture && !self.memory.auto_capture {
             out.push("Automatically save facts from your chat messages to long-term memory".into());
+        }
+        if new.memory.auto_summarize && !self.memory.auto_summarize {
+            out.push(
+                "Save an AI-written summary of each cleared conversation to long-term memory"
+                    .into(),
+            );
+        }
+        // Retention deletes data: turning it on or shortening it is confirmed.
+        let (old_days, new_days) = (self.memory.retention_days, new.memory.retention_days);
+        if new_days != 0 && (old_days == 0 || new_days < old_days) {
+            out.push(format!(
+                "Delete archived conversations older than {new_days} days"
+            ));
         }
         if new.memresort.enabled
             && (self.memresort.host != new.memresort.host
@@ -939,6 +961,22 @@ mod tests {
         new.ai.provider = "openai".into();
         let changes = old.security_changes(&new);
         assert_eq!(changes.len(), 3, "{changes:?}");
+
+        // Memory settings that store or delete data are confirmed too;
+        // keeping transcripts longer is not.
+        let mut new = old.clone();
+        new.memory.auto_summarize = true;
+        new.memory.retention_days = 7;
+        assert_eq!(old.security_changes(&new).len(), 2);
+        let mut old = old;
+        old.memory.retention_days = 90;
+        new = old.clone();
+        new.memory.retention_days = 0;
+        assert!(old.security_changes(&new).is_empty());
+        new.memory.retention_days = 365;
+        assert!(old.security_changes(&new).is_empty());
+        new.memory.retention_days = 30;
+        assert_eq!(old.security_changes(&new).len(), 1);
     }
 
     #[test]

@@ -103,14 +103,30 @@ pub async fn chat_cancel(state: State<'_, AppState>) -> AppResult<()> {
     Ok(())
 }
 
-/// Clear the conversation history.
+/// Clear the conversation history (summarizing it first when
+/// `memory.auto_summarize` is on).
 #[tauri::command]
-pub async fn chat_reset(state: State<'_, AppState>) -> AppResult<()> {
-    state
-        .conversation
-        .try_lock()
-        .map_err(|_| AppError::InvalidInput("a response is in progress; stop it first".into()))?
-        .clear();
+pub async fn chat_reset(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
+    let history =
+        std::mem::take(&mut *state.conversation.try_lock().map_err(|_| {
+            AppError::InvalidInput("a response is in progress; stop it first".into())
+        })?);
+    let summarize = {
+        let s = state.settings.read().await;
+        s.memory.auto_summarize && !s.memory.backend_url.trim().is_empty()
+    };
+    if summarize {
+        // In the background: clearing must not wait for the model.
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let state = app.state::<AppState>();
+            match agent::summarize_conversation(&state, &history).await {
+                Ok(Some(_)) => tracing::info!("saved conversation summary"),
+                Ok(None) => {}
+                Err(e) => tracing::warn!(error = %e, "conversation summary failed"),
+            }
+        });
+    }
     // The next conversation gets its own archive document.
     if let Ok(mut doc) = state.conversation_doc.lock() {
         *doc = None;

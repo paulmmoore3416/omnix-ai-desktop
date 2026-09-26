@@ -121,8 +121,9 @@ pub async fn save_memory(
             "too many or too long tags/category".into(),
         ));
     }
-    memory::require(&state)
-        .await?
+    let store = memory::require(&state).await?;
+    memory::check_capacity(&state, store.as_ref()).await?;
+    store
         .save_detailed(NewMemory {
             content,
             tags,

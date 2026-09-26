@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The four memory settings that had no effect now work. `enable_semantic_search` off makes every search keyword-only;
+  `max_memory_size` refuses new memories when the limit is reached (0 = unlimited, nothing is deleted);
+  `retention_days` deletes archived conversation transcripts older than N days, daily and audited (new default 0 =
+  keep forever; memories and documents are never pruned by age); `auto_summarize` saves a model-written summary of a
+  conversation as a memory when you clear it. Turning on summaries or retention, or shortening retention, needs a
+  native confirmation. Settings → Memory has controls for all four.
+
 ### Added
 - Chat commands `/remember <text> [#tag …]` (saves a user memory, audited as `memory_save`), `/recall [query]`
   (memories only; no query lists the most recent) and `/search <query>` (memories plus indexed documents). They use

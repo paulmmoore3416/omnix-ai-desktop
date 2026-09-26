@@ -540,9 +540,25 @@
                 <span class="text-sm font-medium">Archive conversations <span class="block text-xs text-gray-400 font-normal">Keep a searchable copy of your chats (your messages and OMNIX's replies, never tool output) in the "conversations" knowledge base, so you can ask "what did we discuss about …". Not used for automatic recall.</span></span>
                 <input type="checkbox" bind:checked={settings.memory.archive_conversations} disabled={!settings.memory.backend_url} class="w-5 h-5" />
               </label>
-              <div>
-                <label for="retention" class="block text-sm font-medium mb-2">Retention Period (days) <span class="text-xs text-yellow-300">planned</span></label>
-                <input id="retention" type="number" bind:value={settings.memory.retention_days} disabled class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 opacity-50" />
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Summarize conversations <span class="block text-xs text-gray-400 font-normal">When you clear a conversation (two or more messages), the chat model writes a short summary and saves it as a memory, so later chats can recall it. Marked as saved by the assistant.</span></span>
+                <input type="checkbox" bind:checked={settings.memory.auto_summarize} disabled={!settings.memory.backend_url} class="w-5 h-5" />
+              </label>
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Semantic search <span class="block text-xs text-gray-400 font-normal">Find memories and notes by meaning as well as by words. Off: keyword matching only (no embedding model needed).</span></span>
+                <input type="checkbox" bind:checked={settings.memory.enable_semantic_search} disabled={!settings.memory.backend_url} class="w-5 h-5" />
+              </label>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label for="max-memories" class="block text-sm font-medium mb-2">Memory limit <span class="text-xs text-gray-400 font-normal">(0 = unlimited)</span></label>
+                  <input id="max-memories" type="number" min="0" max="1000000" bind:value={settings.memory.max_memory_size} disabled={!settings.memory.backend_url} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 disabled:opacity-50" />
+                  <p class="text-xs text-gray-400 mt-1">When full, new memories are refused. Nothing is deleted for you.</p>
+                </div>
+                <div>
+                  <label for="retention" class="block text-sm font-medium mb-2">Keep archived conversations (days) <span class="text-xs text-gray-400 font-normal">(0 = forever)</span></label>
+                  <input id="retention" type="number" min="0" max="36500" bind:value={settings.memory.retention_days} disabled={!settings.memory.backend_url} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 disabled:opacity-50" />
+                  <p class="text-xs text-gray-400 mt-1">Older chat transcripts are deleted daily. Memories and documents are never removed by age.</p>
+                </div>
               </div>
             </div>
           </div>

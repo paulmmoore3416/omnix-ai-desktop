@@ -354,7 +354,10 @@ File: `~/.config/omnix/settings.json`. Unknown fields are ignored and missing fi
 | `recall_min_score` | `0.4` | 0–1 (kb-core calibrated relevance) |
 | `auto_capture` | `false` | §8; enabling requires native confirmation |
 | `archive_conversations` | `true` | §8 conversation archive |
-| `max_memory_size`, `auto_summarize`, `retention_days`, `enable_semantic_search` | `1000`, `false`, `90`, `true` | Reserved / planned |
+| `max_memory_size` | `1000` | Active-memory limit (0 = unlimited). Saves (`/remember`, the `remember` tool, the Knowledge view, fact capture) are refused when it is reached; nothing is deleted. Enforced when the service reports a count (kb-core `/health`) |
+| `auto_summarize` | `false` | On **Clear**, the chat model summarizes the conversation (≥ 2 user messages, user/assistant text only) and saves it as a `conversation-summary` memory with `source: assistant`. Enabling it is confirmed natively |
+| `retention_days` | `0` | Archived transcripts (`conversations` collection) older than this are deleted 2 min after start and then daily (audited as `memory_retention`); 0 = forever. Memories and documents are never pruned by age. Turning it on or shortening it is confirmed natively |
+| `enable_semantic_search` | `true` | Off = every search (auto-recall, `/recall`, `/search`, Knowledge view, `search_memory`) is sent with `mode: keyword` |
 
 ### `security`
 
@@ -418,7 +421,7 @@ File: `~/.config/omnix/settings.json`. Unknown fields are ignored and missing fi
 | Field | Values |
 |---|---|
 | `source` | `user`, `llm_tool` |
-| `action` | `exec`, `read_file`, `list_directory`, `write_file`, `kill_process`, `settings_change`, `mcp_start`, `mcp_call`, `tts`, `memory_save`, `memory_capture`, `memory_export`, `memory_import`, `kb_delete`, `model_load`, `model_unload`, `model_pull`, `model_delete`, `cleanup`, `ops_create`, `ops_approve` |
+| `action` | `exec`, `read_file`, `list_directory`, `write_file`, `kill_process`, `settings_change`, `mcp_start`, `mcp_call`, `tts`, `memory_save`, `memory_capture`, `memory_retention`, `memory_export`, `memory_import`, `kb_delete`, `model_load`, `model_unload`, `model_pull`, `model_delete`, `cleanup`, `ops_create`, `ops_approve` |
 | `tier` | `read_only`, `mutating`, `privileged`, `denied` |
 | `decision` | `allowed`, `denied`, `not_approved`, `failed` |
 | `confirmation` | `not_required`, `approved`, `declined`, `timed_out`, `skipped`, `pre_approved` (unattended run of a signed rule; `detail` names the rule) |
