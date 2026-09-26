@@ -96,6 +96,23 @@ Type in the box at the bottom and press **Enter** (or click **Send**).
 
 ---
 
+### Spreadsheets, web pages and other files
+
+Ask OMNIX to *make* something and it writes the file for you:
+
+- *"Build me an Excel workbook that tracks overtime by unit, with a chart and a drop-down for the unit."* It creates
+  a real `.xlsx` with working formulas, a formatted table, drop-downs, highlighting and charts.
+- *"Make an interactive HTML page where I can filter and sort this list."* It writes one self-contained `.html`
+  file that opens offline in any browser.
+- Markdown notes, CSV exports, scripts and app code work the same way.
+
+Every file write opens an approval dialog showing the path and a preview (for a workbook: its sheets, row counts
+and charts). Nothing is written until you click **Write**. Files go to `~/Documents` unless you name a folder
+(the folder must exist). Credential locations and OMNIX's own settings and audit files can't be written.
+
+Excel calculates the formulas when it opens the file. In LibreOffice, press **Ctrl+Shift+F9** once if formula
+cells show 0, or set Tools → Options → LibreOffice Calc → Formula → *Recalculation on file load* to **Always**.
+
 ### Long-term memory
 
 With the memory service set up (`./scripts/setup-memory.sh`; `bootstrap.sh` does it for you), OMNIX remembers

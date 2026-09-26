@@ -1,4 +1,4 @@
-//! Guarded file access used by `/file` chat commands (and, later, LLM tools).
+//! Guarded file access used by `/file` chat commands and the agent's file tools.
 //!
 //! These are **not** exposed as raw Tauri commands: the webview cannot read or
 //! write arbitrary paths directly. Every call:
@@ -116,7 +116,7 @@ pub async fn list_directory<R: Runtime>(
     Ok(names)
 }
 
-/// Create or overwrite a file. Always requires native confirmation.
+/// Create or overwrite a text file. Always requires native confirmation.
 pub async fn write_file<R: Runtime>(
     app: &AppHandle<R>,
     state: &AppState,
@@ -124,28 +124,71 @@ pub async fn write_file<R: Runtime>(
     content: &str,
     source: Source,
 ) -> AppResult<()> {
-    let started = Instant::now();
-    let rec = AuditRecord {
-        tier: RiskTier::Mutating,
-        ..base_record("write_file", path, source)
-    };
-    if content.len() > MAX_WRITE_BYTES {
-        return Err(AppError::InvalidInput(format!(
-            "content is larger than {} MiB",
-            MAX_WRITE_BYTES / 1024 / 1024
-        )));
-    }
-    let target =
-        match resolve_for_write(path, state.home.as_deref()).and_then(|p| guard_write(state, p)) {
-            Ok(p) => p,
-            Err(e) => return deny(state, rec, e).await,
-        };
-    let exists = target.exists();
     let preview: String = content
         .chars()
         .take(300)
         .map(|c| if c.is_control() && c != '\n' { '·' } else { c })
         .collect();
+    let more = if content.chars().count() > 300 {
+        "…"
+    } else {
+        ""
+    };
+    write_bytes(
+        app,
+        state,
+        WriteRequest {
+            path,
+            data: content.as_bytes(),
+            preview: format!("Preview:\n{preview}{more}"),
+            action: "write_file",
+            source,
+        },
+    )
+    .await
+}
+
+/// A file write for [`write_bytes`].
+pub struct WriteRequest<'a> {
+    /// Target path (absolute or `~/`).
+    pub path: &'a str,
+    /// Content.
+    pub data: &'a [u8],
+    /// What the confirmation dialog shows about the content. For binary
+    /// files this is a description built from the parsed request (sheets,
+    /// rows), never the raw bytes.
+    pub preview: String,
+    /// Audit action name.
+    pub action: &'a str,
+    /// Who asked.
+    pub source: Source,
+}
+
+/// Create or overwrite a file with arbitrary bytes, under the same path
+/// policy, native confirmation and audit as [`write_file`].
+pub async fn write_bytes<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &AppState,
+    req: WriteRequest<'_>,
+) -> AppResult<()> {
+    let started = Instant::now();
+    let rec = AuditRecord {
+        tier: RiskTier::Mutating,
+        ..base_record(req.action, req.path, req.source)
+    };
+    if req.data.len() > MAX_WRITE_BYTES {
+        return Err(AppError::InvalidInput(format!(
+            "content is larger than {} MiB",
+            MAX_WRITE_BYTES / 1024 / 1024
+        )));
+    }
+    let target = match resolve_for_write(req.path, state.home.as_deref())
+        .and_then(|p| guard_write(state, p))
+    {
+        Ok(p) => p,
+        Err(e) => return deny(state, rec, e).await,
+    };
+    let exists = target.exists();
     let settings = state.settings.read().await.clone();
     let confirmation = confirm::ask(
         app,
@@ -157,19 +200,9 @@ pub async fn write_file<R: Runtime>(
             }
             .into(),
             subject: format!("File:\n{}", target.display()),
-            details: vec![
-                format!("Size: {} bytes", content.len()),
-                format!(
-                    "Preview:\n{preview}{}",
-                    if content.chars().count() > 300 {
-                        "…"
-                    } else {
-                        ""
-                    }
-                ),
-            ],
+            details: vec![format!("Size: {} bytes", req.data.len()), req.preview],
             tier: RiskTier::Mutating,
-            source,
+            source: req.source,
             reasons: vec![if exists {
                 "replaces the existing file contents".into()
             } else {
@@ -192,7 +225,7 @@ pub async fn write_file<R: Runtime>(
             .await?;
         return Err(AppError::NotApproved("file write was not approved".into()));
     }
-    let result = tokio::fs::write(&target, content).await;
+    let result = tokio::fs::write(&target, req.data).await;
     state
         .audit
         .record(AuditRecord {
@@ -204,7 +237,10 @@ pub async fn write_file<R: Runtime>(
             },
             confirmation,
             duration_ms: Some(elapsed_ms(started)),
-            detail: result.as_ref().err().map(ToString::to_string),
+            detail: Some(match &result {
+                Ok(()) => format!("{} bytes", req.data.len()),
+                Err(e) => e.to_string(),
+            }),
             ..rec
         })
         .await?;

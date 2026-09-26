@@ -97,6 +97,26 @@ pub enum UiEvent {
     Done,
 }
 
+/// How OMNIX builds deliverables. Kept short: the detailed playbooks live in
+/// the user's knowledge base and are retrieved with `search_memory`.
+const CRAFT: &str = "\
+When you build something for the user:
+- Excel: use create_workbook, never CSV, when they ask for a workbook or spreadsheet. Put inputs, \
+calculations and outputs on separate sheets; use formulas (not pasted values) for anything derived \
+so the workbook stays live; format every numeric column; give lookups a named range; add \
+drop-down validation for categorical inputs and conditional formats for exceptions; add a chart \
+when a trend or comparison matters. After creating it, list the sheets and what each formula does.
+- HTML: write one self-contained file with write_file (inline CSS and JavaScript, no build step, \
+no external requests unless the user asks). Use semantic HTML, CSS custom properties with a dark \
+mode, a responsive layout that works at phone width, keyboard-accessible controls with labels, \
+and vanilla JavaScript. Interactive pages: sortable/filterable tables, form validation, \
+localStorage for per-user state, print styles.
+- Code (Android/Kotlin, web apps, SaaS/PaaS services, scripts): state the architecture first, \
+then write complete, runnable files with error handling, and say how to build, test and run them.
+- Data about patients or clients is PHI: keep it local; never put it in a file outside the \
+folder the user chose.
+";
+
 /// System prompt, including the prompt-injection rule.
 pub fn system_prompt(home: &str, memory_enabled: bool) -> String {
     let os = sysinfo::System::long_os_version().unwrap_or_else(|| std::env::consts::OS.to_string());
@@ -104,16 +124,21 @@ pub fn system_prompt(home: &str, memory_enabled: bool) -> String {
     let memory = if memory_enabled {
         "- search_memory: search the user's long-term memory (saved facts and indexed notes).\n\
 - remember: save a lasting fact, preference or decision the user wants you to keep. Use it when \
-the user asks you to remember something or states a durable preference; never for secrets.\n"
+the user asks you to remember something or states a durable preference; never for secrets.\n\
+  Before a large deliverable (workbook, web page, app), search_memory for the user's playbooks \
+and preferences on the topic.\n"
     } else {
         ""
     };
+    let craft = CRAFT;
     format!(
         "You are OMNIX, a desktop assistant running locally on {os} for the user whose home \
 directory is {home}. Today is {today}.
 
 You can use tools to inspect and act on this computer:
 - list_directory, read_file: read files and folders (credential files are blocked).
+- write_file: create a text file (HTML, Markdown, CSV, code). create_workbook: create a real Excel \
+.xlsx workbook. The user approves every write. Save to ~/Documents unless the user names a folder.
 - run_command: run a shell command. Read-only commands run immediately; anything that changes \
 the system opens a confirmation dialog the user must approve; destructive commands are blocked.
 - host_status: measured state of this computer: CPU, memory, disks, GPUs (with VRAM and which \
@@ -135,6 +160,7 @@ say what a system-changing command will do before calling it.
 3. Never attempt to bypass the confirmation dialog or command policy, and never try to read \
 credentials (SSH keys, keyrings, cloud credentials, password stores).
 4. If a tool call is denied or not approved, do not retry it in another form; tell the user.
+{craft}
 Answer in Markdown."
     )
 }
@@ -175,6 +201,24 @@ pub fn tool_specs(memory_enabled: bool) -> Vec<ToolSpec> {
                 "additionalProperties": false
             }),
         },
+        ToolSpec {
+            name: "write_file".into(),
+            description: "Create or overwrite a UTF-8 text file (HTML page, Markdown, CSV, code, config; max 5 MiB). The user approves every write in a native dialog. Path must be absolute or start with ~/, and its folder must exist. Write the complete file in one call.".into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "e.g. ~/Documents/budget-dashboard.html" },
+                    "content": { "type": "string", "description": "The full file content." }
+                },
+                "required": ["path", "content"],
+                "additionalProperties": false
+            }),
+        },
+        ToolSpec {
+            name: "create_workbook".into(),
+            description: "Create a real Excel .xlsx workbook: typed cells, live formulas (strings starting with '=' incl. XLOOKUP/FILTER/LET), number formats, Excel tables with total rows, frozen headers, drop-down and number validation, conditional formats, charts and named ranges. The user approves the write in a native dialog.".into(),
+            parameters: workbook_schema(),
+        },
     ];
     v.extend(host_tool_specs());
     if memory_enabled {
@@ -208,6 +252,110 @@ pub fn tool_specs(memory_enabled: bool) -> Vec<ToolSpec> {
         });
     }
     v
+}
+
+/// JSON schema of `create_workbook` (built in parts: one `json!` would
+/// exceed the macro recursion limit).
+fn workbook_schema() -> Value {
+    let column = json!({
+        "type": "object",
+        "properties": {
+            "header": { "type": "string" },
+            "width": { "type": "number" },
+            "format": { "type": "string", "description": "Excel number format, e.g. $#,##0.00  0.0%  yyyy-mm-dd  #,##0" },
+            "total": { "type": "string", "enum": ["sum", "average", "count", "min", "max"] }
+        },
+        "required": ["header"]
+    });
+    let conditional = json!({
+        "type": "object",
+        "properties": {
+            "range": { "type": "string", "description": "e.g. D2:D200" },
+            "type": { "type": "string", "enum": ["formula", "data_bar", "color_scale"] },
+            "formula": { "type": "string", "description": "Relative to the range's top-left cell, e.g. =$D2<0" },
+            "fill_color": { "type": "string" },
+            "font_color": { "type": "string" },
+            "bold": { "type": "boolean" }
+        },
+        "required": ["range", "type"]
+    });
+    let validation = json!({
+        "type": "object",
+        "properties": {
+            "range": { "type": "string" },
+            "list": { "type": "array", "items": { "type": "string" } },
+            "min": { "type": "number" },
+            "max": { "type": "number" },
+            "whole": { "type": "boolean" },
+            "input_message": { "type": "string" }
+        },
+        "required": ["range"]
+    });
+    let series = json!({
+        "type": "object",
+        "properties": {
+            "name": { "type": "string" },
+            "values": { "type": "string", "description": "e.g. Sales!$B$2:$B$13" }
+        },
+        "required": ["values"]
+    });
+    let chart = json!({
+        "type": "object",
+        "properties": {
+            "type": { "type": "string", "enum": ["column", "column_stacked", "bar", "bar_stacked", "line", "pie", "doughnut", "area", "scatter", "radar"] },
+            "title": { "type": "string" },
+            "categories": { "type": "string", "description": "With sheet name, e.g. Sales!$A$2:$A$13" },
+            "series": { "type": "array", "items": series },
+            "cell": { "type": "string", "description": "Anchor cell, e.g. H2" },
+            "x_title": { "type": "string" },
+            "y_title": { "type": "string" }
+        },
+        "required": ["type", "series"]
+    });
+    let sheet = json!({
+        "type": "object",
+        "properties": {
+            "name": { "type": "string", "description": "Tab name, max 31 chars, none of []:*?/\\" },
+            "columns": {
+                "type": "array",
+                "description": "Header row; data starts on Excel row 2.",
+                "items": column
+            },
+            "rows": {
+                "type": "array",
+                "description": "Data rows: numbers, booleans, strings, null (blank) or formulas like \"=C2-B2\".",
+                "items": { "type": "array" }
+            },
+            "table": { "type": "boolean", "description": "Format as an Excel table (default true when columns are given)." },
+            "table_style": { "type": "string", "description": "e.g. Medium2 (default), Medium9, Light9, Dark1" },
+            "total_row": { "type": "boolean" },
+            "freeze_header": { "type": "boolean" },
+            "tab_color": { "type": "string", "description": "#RRGGBB" },
+            "landscape": { "type": "boolean" },
+            "conditional_formats": { "type": "array", "items": conditional },
+            "validations": { "type": "array", "items": validation },
+            "charts": { "type": "array", "items": chart }
+        },
+        "required": ["name"]
+    });
+    json!({
+        "type": "object",
+        "properties": {
+            "path": { "type": "string", "description": "Target .xlsx path, absolute or ~/…" },
+            "title": { "type": "string" },
+            "sheets": { "type": "array", "minItems": 1, "items": sheet },
+            "named_ranges": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": { "name": { "type": "string" }, "range": { "type": "string" } },
+                    "required": ["name", "range"]
+                }
+            }
+        },
+        "required": ["path", "sheets"],
+        "additionalProperties": false
+    })
 }
 
 /// Host-control tools (always available; every state change goes through
@@ -622,6 +770,15 @@ async fn execute_tool<R: Runtime>(
                 .map(|v| clip(&v.join("\n")))
                 .map_err(|e| e.to_string()),
         },
+        "write_file" => match (arg_str(a, "path"), a.get("content").and_then(Value::as_str)) {
+            (Err(e), _) => Err(e),
+            (_, None) => Err("missing string argument `content`".into()),
+            (Ok(p), Some(content)) => files::write_file(app, state, &p, content, Source::LlmTool)
+                .await
+                .map(|()| format!("Wrote {} bytes to {p}.", content.len()))
+                .map_err(|e| e.to_string()),
+        },
+        "create_workbook" => create_workbook(app, state, a).await,
         "search_memory" => match arg_str(a, "query") {
             Err(e) => Err(e),
             Ok(q) => {
@@ -684,6 +841,59 @@ async fn execute_tool<R: Runtime>(
         Ok(s) => (s, false),
         Err(e) => (format!("ERROR: {e}"), true),
     }
+}
+
+/// The `create_workbook` tool: build the .xlsx in memory, then write it
+/// through the guarded, confirmed and audited file path. The confirmation
+/// dialog describes the parsed workbook (sheets, rows, charts), never bytes.
+async fn create_workbook<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &AppState,
+    a: &Value,
+) -> Result<String, String> {
+    let path = arg_str(a, "path")?;
+    if !path.to_ascii_lowercase().ends_with(".xlsx") {
+        return Err("path must end in .xlsx".into());
+    }
+    let spec = crate::workbook::parse(a).map_err(|e| e.to_string())?;
+    let bytes = crate::workbook::build(&spec).map_err(|e| e.to_string())?;
+    let summary: Vec<String> = spec
+        .sheets
+        .iter()
+        .map(|s| {
+            format!(
+                "• {}: {} columns, {} rows{}",
+                s.name,
+                s.columns.len(),
+                s.rows.len(),
+                if s.charts.is_empty() {
+                    String::new()
+                } else {
+                    format!(", {} chart(s)", s.charts.len())
+                }
+            )
+        })
+        .collect();
+    files::write_bytes(
+        app,
+        state,
+        files::WriteRequest {
+            path: &path,
+            data: &bytes,
+            preview: format!("Excel workbook:\n{}", summary.join("\n")),
+            action: "create_workbook",
+            source: Source::LlmTool,
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(format!(
+        "Created {path} ({} bytes):\n{}\nExcel calculates the formulas when the file opens. LibreOffice shows 0 for formulas until it \
+recalculates: Data → Calculate → Recalculate Hard (Ctrl+Shift+F9), or set Tools → Options → \
+LibreOffice Calc → Formula → Recalculation on file load → Excel 2007 and newer: Always.",
+        bytes.len(),
+        summary.join("\n")
+    ))
 }
 
 /// The `remember` tool. Model-initiated memories are tagged
@@ -858,8 +1068,7 @@ pub fn transcript(history: &[ChatMessage]) -> Option<(String, String)> {
     let first = history
         .iter()
         .find(|m| m.role == Role::User && !m.content.trim().is_empty())?;
-    let title: String = first
-        .content
+    let title: String = crate::security::audit::redact(&first.content)
         .split_whitespace()
         .take(8)
         .collect::<Vec<_>>()
@@ -870,7 +1079,9 @@ pub fn transcript(history: &[ChatMessage]) -> Option<(String, String)> {
         .collect();
     let mut md = String::new();
     for m in history {
-        let text = m.content.trim();
+        // Users paste API keys into chat; the archive is searchable memory the
+        // model can retrieve later, so keys never reach it.
+        let text = crate::security::audit::redact(m.content.trim());
         if text.is_empty() {
             continue;
         }
@@ -1366,6 +1577,21 @@ mod tests {
     }
 
     #[test]
+    fn transcript_redacts_pasted_keys() {
+        let h = vec![
+            ChatMessage::text(
+                Role::User,
+                "sk_0123456789abcdef0123456789abcdef AIzaSyA0123456789abcdefghijklmnopqrstu",
+            ),
+            ChatMessage::text(Role::Assistant, "Noted."),
+        ];
+        let (title, md) = transcript(&h).expect("transcript");
+        for text in [&title, &md] {
+            assert!(!text.contains("0123456789abcdef"), "{text}");
+        }
+    }
+
+    #[test]
     fn summary_drops_reasoning_and_is_clipped() {
         assert_eq!(
             clean_summary("<think>plan\nstuff</think>\n The user set up  backups."),
@@ -1437,8 +1663,8 @@ mod tests {
             assert_eq!(t.parameters["additionalProperties"], false, "{}", t.name);
             assert!(t.parameters["required"].is_array());
         }
-        // 3 file/shell tools + 4 host-control tools.
-        assert_eq!(tool_specs(false).len(), 7);
+        // 5 file/shell tools + 4 host-control tools.
+        assert_eq!(tool_specs(false).len(), 9);
     }
 
     #[test]

@@ -24,6 +24,7 @@ pub mod settings;
 pub mod state;
 pub mod system;
 pub mod voice;
+pub mod workbook;
 
 use tauri::Manager;
 

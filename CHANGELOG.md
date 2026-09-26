@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Spreadsheets, web pages and files from chat.** Two new agent tools: `write_file` (HTML pages, Markdown, CSV,
+  code) and `create_workbook`, which builds a real Excel `.xlsx` with live formulas (including XLOOKUP, FILTER and
+  LET), number formats, Excel tables with total rows, frozen headers, drop-down and number validation, conditional
+  formats, charts and named ranges. Every write is confirmed natively (the dialog summarises the workbook's sheets,
+  never raw bytes), passes the credential/protected-path policy and is audited (`write_file`, `create_workbook`).
+  The system prompt gains a short playbook for workbooks, self-contained HTML pages and app code.
+- **Security:** archived conversations (and the summaries made from them) are now redacted like the audit log,
+  so an API key pasted into chat is no longer saved to searchable memory. ElevenLabs keys (`sk_…`) join the
+  redaction patterns.
 - Phone heads-ups (Settings → Phone): a text when an approval dialog is still open after `approval_wait_secs`
   (no details); a text when a model download or a rule's command/report ran at least `long_job_minutes`; alerts
   without their own phone choice call for critical ones and text for the rest (`alerts_by_severity`); a text when
