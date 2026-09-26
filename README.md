@@ -40,7 +40,7 @@
 | Cloud providers (Anthropic, OpenAI, Gemini, xAI) with streaming + tools | ✅ when local-only mode is turned off; keys in the OS keychain |
 | Voice: push-to-talk speech input via a faster-whisper server (Speaches), read-aloud via local Piper | ✅ when configured (Settings → Voice); hold or tap the mic, or hold Ctrl+Space; built-in mic test |
 | JARVIS-style holographic avatar: 13 mood colours, alert halos (offline, high load, blocked, connection issue), tool-call satellites, in-app colour key | ✅ |
-| Long-term memory ([kb-core](kb-core/README.md)): automatic recall before each reply, `remember` tool, optional fact capture, conversation archive, duplicate merging and contradiction handling, hybrid keyword + semantic search over memories, notes, PDFs and code in live-synced folders, **knowledge bases**, analytics, export/import, Prometheus metrics | ✅ installed by `bootstrap.sh` / `./scripts/setup-memory.sh` ([contract](docs/kb-core-contract.md)) |
+| Long-term memory ([kb-core](kb-core/README.md)): automatic recall before each reply, `remember` tool, optional fact capture, conversation archive, duplicate merging and contradiction handling (local LLM, optionally cross-checked by an NLI model), recall feedback, optional encryption at rest, hybrid keyword + semantic search over memories, notes, PDFs and code in live-synced folders, **knowledge bases**, analytics, export/import, Prometheus metrics | ✅ installed by `bootstrap.sh` / `./scripts/setup-memory.sh` ([contract](docs/kb-core-contract.md)) |
 | MCP servers (stdio or HTTP) as extra AI tools, every call policy-gated and audited | ✅ Settings → MCP Servers |
 | Tray icon, close-to-tray, single instance, remembered window size | ✅ |
 | Optional audit-log shipping to Grafana Loki | ✅ off by default |

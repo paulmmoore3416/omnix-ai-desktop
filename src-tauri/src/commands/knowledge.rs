@@ -38,6 +38,7 @@ pub async fn get_knowledge_data(state: State<'_, AppState>) -> AppResult<Value> 
                 "importance": m.importance, "category": m.category,
                 "timestamp": m.created_at, "source": m.source, "pinned": m.pinned,
                 "reinforced": m.reinforced, "accessCount": m.access_count,
+                "rejected": m.rejected,
                 "activation": m.activation, "collection": m.collection,
             })
         })
@@ -164,6 +165,18 @@ pub async fn update_memory(
         .await?
         .update_memory(&id, Value::Object(clean))
         .await
+}
+
+/// "This recalled memory was wrong / helped". Safe to take from the webview:
+/// feedback only changes ranking (a flagged memory still answers when it is
+/// the only match) and never hides, edits or deletes anything.
+#[tauri::command]
+pub async fn memory_feedback(
+    state: State<'_, AppState>,
+    id: String,
+    helpful: bool,
+) -> AppResult<Value> {
+    memory::require(&state).await?.feedback(&id, helpful).await
 }
 
 /// The webview is untrusted: forward only known memory fields with

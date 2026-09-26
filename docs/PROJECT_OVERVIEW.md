@@ -238,7 +238,7 @@ desktop agents:
 | Cloud providers, MCP, voice, Loki shipping | ✅ Shipped (opt-in) |
 | Long-term memory (kb-core): recall, remember, learning, consolidation, folder sync, export/import | ✅ Shipped (installed by bootstrap) |
 | Knowledge bases (kb-core collections), PDF and code indexing | ✅ Shipped |
-| Memory encryption at rest | 🚧 Planned |
+| Memory encryption at rest (SQLCipher, key in the OS keyring) | ✅ Shipped (opt-in: `setup-memory.sh --encrypt`) |
 | System Control: GPUs, services, Docker, models, alerts, automations, scheduler, cleanup, optimize | ✅ Shipped |
 | AIORC routing backend | 🚧 Scaffolded (`--features aiorc`) |
 | Signed releases + auto-update | 🚧 Pending release signing |

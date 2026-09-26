@@ -285,6 +285,20 @@ two memory tools (`search_memory`, `remember`).
   but can never hide one (`superseded_by` only accepts `null`).
   Auto-recall doesn't count as use of a memory (`track: false`), so a memory
   that was recalled once can't boost itself into every later reply.
+  The user can flag a recalled memory as wrong (👎 under "Memories used"):
+  `memory_feedback` only lowers its rank and never hides or edits anything, so
+  it is safe to accept from the webview. Only the user restating the memory
+  clears the flags; the assistant re-saving it cannot.
+  With the optional NLI judge (`setup-memory.sh --nli`), a merge or
+  replacement needs the local LLM and the NLI model to agree. The model is a
+  pinned revision whose files are checked against SHA-256 sums at install,
+  because it decides which memories get hidden.
+* **Memory at rest.** The database is mode 600. `setup-memory.sh --encrypt`
+  encrypts the whole file with SQLCipher (page-level AES-256); the key is 32
+  random bytes kept only in the OS keyring (never in `kb-core.env`, the
+  environment, logs or OMNIX settings). This protects a copied disk or backup
+  and other local users, not a process running as the same user while the
+  keyring is unlocked. `kb-core export` files are plain JSON (mode 600).
 
 ## 10. MCP servers
 

@@ -76,6 +76,13 @@ pub enum UiEvent {
         /// Short human summary.
         summary: String,
     },
+    /// The memories auto-recall put in this turn's prompt, so the user can
+    /// say which were wrong (recall feedback). Documents are left out: only
+    /// memories take feedback.
+    Recalled {
+        /// Recalled memories, best first.
+        memories: Vec<RecalledMemory>,
+    },
     /// Informational note (step limit, cancellation, ...).
     Notice {
         /// Message.
@@ -459,6 +466,38 @@ fn origin_label(h: &SearchHit) -> String {
         // Contract-only services don't report provenance: don't guess.
         _ => "memory, origin unknown".into(),
     }
+}
+
+/// One recalled memory as the chat shows it.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct RecalledMemory {
+    /// Memory id (for feedback).
+    pub id: String,
+    /// First [`RECALL_PREVIEW_CHARS`] characters, as plain text.
+    pub preview: String,
+    /// Provenance: `user`, `extract`, `assistant`, `import`.
+    pub origin: Option<String>,
+}
+
+/// Characters of a recalled memory shown under the reply.
+const RECALL_PREVIEW_CHARS: usize = 160;
+
+/// The memory hits of a recall, for [`UiEvent::Recalled`].
+fn recalled_memories(hits: &[SearchHit]) -> Vec<RecalledMemory> {
+    hits.iter()
+        .filter(|h| h.kind.as_deref().unwrap_or("memory") == "memory")
+        .map(|h| {
+            let mut preview: String = h.content.chars().take(RECALL_PREVIEW_CHARS).collect();
+            if h.content.chars().count() > RECALL_PREVIEW_CHARS {
+                preview.push('…');
+            }
+            RecalledMemory {
+                id: h.id.clone(),
+                preview,
+                origin: h.origin.clone(),
+            }
+        })
+        .collect()
 }
 
 /// The system-prompt addendum for auto-recalled memory, or `None` if there
@@ -935,6 +974,10 @@ async fn run_turn_inner<R: Runtime>(
                     if hits.len() == 1 { "entry" } else { "entries" }
                 ),
             });
+            let memories = recalled_memories(&hits);
+            if !memories.is_empty() {
+                emit(UiEvent::Recalled { memories });
+            }
             prompt.push_str(&block);
         }
     }
@@ -1145,6 +1188,22 @@ mod tests {
         d.origin = Some("user".into());
         assert!(format_hits(&[d])
             .contains("[external document inbox/guide.md, not verified by the user,"));
+    }
+
+    #[test]
+    fn recalled_memories_for_feedback() {
+        let long = "é".repeat(RECALL_PREVIEW_CHARS + 5);
+        let hits = [
+            hit("memory", "memory", "short fact", 0.6),
+            hit("document", "notes/a.md", "a chunk", 0.6),
+            hit("memory", "memory", &long, 0.5),
+        ];
+        let m = recalled_memories(&hits);
+        assert_eq!(m.len(), 2, "documents take no feedback");
+        assert_eq!(m[0].preview, "short fact");
+        assert_eq!(m[0].origin.as_deref(), Some("user"));
+        assert_eq!(m[1].preview.chars().count(), RECALL_PREVIEW_CHARS + 1);
+        assert!(m[1].preview.ends_with('…'));
     }
 
     #[test]

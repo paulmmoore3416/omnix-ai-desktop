@@ -24,7 +24,10 @@ from kb_core.chunking import chunk_code, chunk_document, split_text
 from kb_core.config import Config
 from kb_core.llm import ModelUnavailable
 from kb_core.server import Api, make_handler
-from kb_core.store import BadRequest, KnowledgeBase, NotConfigured, NotFound, fts_query, personalize
+from kb_core import crypto
+from kb_core.nli import NliJudge
+from kb_core.store import (SCHEMA_VERSION, BadRequest, KnowledgeBase, NotConfigured, NotFound, fts_query,
+                           personalize)
 from kb_core.sync import FolderSync, sync_folder
 from kb_core.vectors import VectorIndex, dot, normalise
 
@@ -596,7 +599,7 @@ class CollectionTests(Base):
         self.addCleanup(kb.close)
         self.assertEqual(kb.list_memories()[0]["collection"], "default")
         self.assertFalse(kb.list_memories()[0]["reviewed"], "v1 → v2 → v3 in one open")
-        self.assertEqual(kb.db.execute("PRAGMA user_version").fetchone()[0], 3)
+        self.assertEqual(kb.db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
         kb.backfill()
         self.assertEqual(kb.search("old fact")["results"][0]["id"], "m_old", "FTS still works after migration")
 
@@ -846,4 +849,195 @@ class ReviewQueueTests(Base):
         db.close()
         kb = self.reopen()
         self.assertFalse(kb.get_memory(m)["reviewed"])
-        self.assertEqual(kb.db.execute("PRAGMA user_version").fetchone()[0], 3)
+        self.assertEqual(kb.db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
+
+
+class FakeNli:
+    """Stands in for the ONNX judge: a fixed ruling (duplicates, obsolete)."""
+
+    model = "fake-nli"
+
+    def __init__(self, dups: set[int], obsolete: set[int]) -> None:
+        self.ruling = (dups, obsolete, {})
+        self.calls = 0
+
+    def rule(self, new: str, olds: list[str]) -> tuple[set[int], set[int], dict[int, float]]:
+        self.calls += 1
+        return self.ruling
+
+
+class NliJudgeTests(Base):
+    """Second judge next to the LLM: either rules alone; together both must agree."""
+
+    def _judge(self, chat: Any, nli: Any) -> tuple[KnowledgeBase, str, str]:
+        old = self.kb.save_memory("Paul likes meetings in the morning")["id"]
+        self.kb.close()
+        self.kb = KnowledgeBase(self.cfg, self.emb, chat, nli)
+        new = self.kb.save_memory("Paul prefers morning meetings, before 10am")["id"]
+        self.kb._judge_related(*self.kb._jobs.get_nowait()[1])
+        return self.kb, old, new
+
+    def test_nli_alone_rules(self) -> None:
+        kb, old, new = self._judge(None, FakeNli({1}, set()))
+        m = kb.get_memory(old)
+        self.assertEqual((m["superseded_by"], m["hidden_reason"], m["judged_by"]), (new, "merged", "nli"))
+        self.assertEqual(kb.stats()["judge"], "nli")
+
+    def test_both_agree(self) -> None:
+        kb, old, new = self._judge(FakeChat({"duplicate": [], "obsolete": [1]}), FakeNli(set(), {1}))
+        m = kb.get_memory(old)
+        self.assertEqual((m["superseded_by"], m["hidden_reason"], m["judged_by"]), (new, "superseded", "llm+nli"))
+
+    def test_disagreement_keeps_both_live(self) -> None:
+        kb, old, _ = self._judge(FakeChat({"duplicate": [1], "obsolete": []}), FakeNli(set(), set()))
+        self.assertIsNone(kb.get_memory(old)["superseded_by"])
+        self.assertEqual(kb.stats()["judge_disagreements_30d"], 1)
+
+    def test_duplicate_vs_replacement_is_a_disagreement(self) -> None:
+        kb, old, _ = self._judge(FakeChat({"duplicate": [1], "obsolete": []}), FakeNli(set(), {1}))
+        self.assertIsNone(kb.get_memory(old)["superseded_by"])
+
+    def test_restore_clears_judge(self) -> None:
+        kb, old, _ = self._judge(None, FakeNli({1}, set()))
+        self.assertIsNone(kb.update_memory(old, {"superseded_by": None})["judged_by"])
+
+    def test_rule_thresholds(self) -> None:
+        """The decision logic over the model's probabilities, without the model."""
+        j = object.__new__(NliJudge)
+        table = {
+            ("dup", "a"): {"entailment": 0.97, "contradiction": 0.01, "neutral": 0.02},
+            ("a", "dup"): {"entailment": 0.40, "contradiction": 0.05, "neutral": 0.55},
+            ("new", "a"): {"entailment": 0.97, "contradiction": 0.01, "neutral": 0.02},
+            # contradiction one way only (unrelated facts about one person): noise
+            ("oneway", "a"): {"entailment": 0.0, "contradiction": 0.9, "neutral": 0.1},
+            ("a", "oneway"): {"entailment": 0.0, "contradiction": 0.02, "neutral": 0.98},
+            ("both", "a"): {"entailment": 0.0, "contradiction": 0.95, "neutral": 0.05},
+            ("a", "both"): {"entailment": 0.0, "contradiction": 0.92, "neutral": 0.08},
+            ("weak", "a"): {"entailment": 0.85, "contradiction": 0.1, "neutral": 0.05},
+            ("a", "weak"): {"entailment": 0.1, "contradiction": 0.08, "neutral": 0.82},
+        }
+        j.probs = lambda pairs: [table[p] for p in pairs]  # type: ignore[method-assign]
+        self.assertEqual(j.rule("dup", ["a"])[:2], ({1}, set()))
+        self.assertEqual(j.rule("oneway", ["a"])[:2], (set(), set()))
+        self.assertEqual(j.rule("both", ["a"])[:2], (set(), {1}))
+        self.assertEqual(j.rule("weak", ["a"])[:2], (set(), set()), "0.85 entailment is not a duplicate")
+
+    def test_missing_model_is_unavailable(self) -> None:
+        with self.assertRaises(ModelUnavailable):
+            NliJudge(Path(self.tmp.name) / "no-such-model")
+
+
+class FeedbackTests(Base):
+    """Negative recall feedback breaks the recall → activation → recall loop."""
+
+    def test_rejected_memory_ranks_below_but_is_still_found(self) -> None:
+        a = self.kb.save_memory("Paul's backup server is the Synology NAS", consolidate=False)["id"]
+        b = self.kb.save_memory("Paul's backup server is the Proxmox host", consolidate=False)["id"]
+        for _ in range(5):  # a heavily used memory
+            self.kb.search("backup server", track=True)
+        top = lambda: self.kb.search("backup server")["results"][0]["id"]  # noqa: E731
+        first = top()
+        self.kb.feedback(first, False)
+        self.assertNotEqual(top(), first)
+        other = ({a, b} - {first}).pop()
+        self.kb.delete_memory(other)
+        res = self.kb.search("backup server")["results"]
+        self.assertEqual((res[0]["id"], res[0]["rejected"]), (first, 1), "flagged sole match still returned")
+
+    def test_helpful_undoes_one_flag(self) -> None:
+        m = self.kb.save_memory("Paul drives a Tacoma")["id"]
+        self.kb.feedback(m, False)
+        self.kb.feedback(m, False)
+        self.assertEqual(self.kb.feedback(m, True)["rejected"], 1)
+        self.kb.feedback(m, True)
+        self.assertEqual(self.kb.feedback(m, True)["rejected"], 0, "never below zero")
+
+    def test_restating_clears_flags_only_for_user(self) -> None:
+        m = self.kb.save_memory("Paul drives a Tacoma")["id"]
+        self.kb.feedback(m, False)
+        self.kb.save_memory("Paul drives a Tacoma", source="assistant")
+        self.assertEqual(self.kb.get_memory(m)["rejected"], 1, "a model cannot launder a rejected memory")
+        self.kb.save_memory("Paul drives a Tacoma")
+        self.assertEqual(self.kb.get_memory(m)["rejected"], 0)
+
+    def test_validation_and_http(self) -> None:
+        m = self.kb.save_memory("Paul drives a Tacoma")["id"]
+        with self.assertRaises(BadRequest):
+            self.kb.feedback(m, "no")
+        with self.assertRaises(NotFound):
+            self.kb.feedback("m_" + "0" * 16, False)
+        status, body = Api(self.kb).dispatch("POST", f"/memories/{m}/feedback", {}, {"helpful": False})
+        self.assertEqual((status, body["rejected"]), (200, 1))
+        self.assertEqual(self.kb.stats()["flagged_wrong"], 1)
+
+    def test_merge_carries_flags(self) -> None:
+        old = self.kb.save_memory("Paul likes meetings in the morning")["id"]
+        self.kb.feedback(old, False)
+        kb = self.reopen(chat=FakeChat({"duplicate": [1], "obsolete": []}))
+        new = kb.save_memory("Paul prefers morning meetings, before 10am")["id"]
+        kb._judge_related(*kb._jobs.get_nowait()[1])
+        self.assertEqual(kb.get_memory(new)["rejected"], 1)
+
+    def test_v3_database_migrates(self) -> None:
+        m = self.kb.save_memory("Paul drives a Tacoma")["id"]
+        self.kb.close()
+        db = sqlite3.connect(self.cfg.db_path)
+        db.execute("ALTER TABLE items DROP COLUMN rejected")
+        db.execute("ALTER TABLE items DROP COLUMN judge")
+        db.execute("PRAGMA user_version = 3")
+        db.commit()
+        db.close()
+        kb = self.reopen()
+        self.assertEqual(kb.get_memory(m)["rejected"], 0)
+        self.assertEqual(kb.db.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
+
+
+try:
+    import sqlcipher3  # noqa: F401
+
+    HAVE_SQLCIPHER = True
+except ImportError:
+    HAVE_SQLCIPHER = False
+
+
+class CryptoTests(Base):
+    def test_key_pragma_only_takes_hex_keys(self) -> None:
+        self.assertEqual(crypto._key_pragma("ab" * 32), "\"x'" + "ab" * 32 + "'\"")
+        for bad in ("", "zz" * 32, "ab" * 31, "ab" * 32 + "'; --"):
+            with self.assertRaises(ValueError):
+                crypto._key_pragma(bad)
+
+    def test_plain_file_detected(self) -> None:
+        self.kb.save_memory("Paul drives a Tacoma")
+        self.assertTrue(crypto.is_plain_sqlite(self.cfg.db_path))
+
+    def test_bad_encryption_setting_refused(self) -> None:
+        os.environ["KB_CORE_ENCRYPTION"] = "yes"
+        self.addCleanup(os.environ.pop, "KB_CORE_ENCRYPTION", None)
+        with self.assertRaises(SystemExit):
+            Config.from_env()
+
+    def test_key_never_in_repr(self) -> None:
+        self.assertNotIn("ab" * 32, repr(Config(db_key="ab" * 32)))
+
+    @unittest.skipUnless(HAVE_SQLCIPHER, "sqlcipher3 not installed")
+    def test_round_trip(self) -> None:
+        m = self.kb.save_memory("Paul's anniversary is October 12")["id"]
+        self.kb.close()
+        key = "5a" * 32
+        self.assertEqual(crypto.convert(self.cfg.db_path, None, key), (1, 0, 0))
+        self.assertFalse(crypto.is_plain_sqlite(self.cfg.db_path))
+        self.assertNotIn(b"anniversary", self.cfg.db_path.read_bytes())
+        with self.assertRaises(SystemExit):
+            KnowledgeBase(self.cfg, self.emb)  # no key
+        self.cfg.db_key = key
+        self.kb = KnowledgeBase(self.cfg, self.emb)
+        self.assertEqual(self.kb.search("anniversary")["results"][0]["id"], m, "FTS5 works encrypted")
+        self.kb.close()
+        with self.assertRaises(Exception):
+            crypto.convert(self.cfg.db_path, "00" * 32, None)  # wrong key: original untouched
+        self.assertFalse(crypto.is_plain_sqlite(self.cfg.db_path))
+        crypto.convert(self.cfg.db_path, key, None)
+        self.cfg.db_key = None
+        self.kb = KnowledgeBase(self.cfg, self.emb)
+        self.assertEqual(self.kb.get_memory(m)["content"], "Paul's anniversary is October 12")

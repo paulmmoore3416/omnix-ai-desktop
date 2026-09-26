@@ -11,6 +11,7 @@ OMNIX relies on, the rest are kb-core extensions):
     POST   /documents                  index / replace by name
     GET    /memories/{id}              one memory with its links
     PATCH  /memories/{id}              edit, pin, restore a superseded memory
+    POST   /memories/{id}/feedback     {"helpful": bool}: recall feedback (penalty)
     GET    /documents                  list
     GET    /documents/{id}             content + chunks
     DELETE /documents/{id}
@@ -73,6 +74,8 @@ class Api:
             ("GET", re.compile(r"/memories/([^/]+)"), lambda q, b, i: self.kb.get_memory(i)),
             ("PATCH", re.compile(r"/memories/([^/]+)"), self.patch_memory),
             ("DELETE", re.compile(r"/memories/([^/]+)"), self.delete_memory),
+            ("POST", re.compile(r"/memories/([^/]+)/feedback"),
+             lambda q, b, i: self.kb.feedback(i, self._obj(b).get("helpful"))),
             ("POST", re.compile(r"/search"), self.search),
             ("GET", re.compile(r"/documents"), lambda q, b: {"documents": self.kb.list_documents(q.get("collection", [None])[0])}),
             ("POST", re.compile(r"/documents"), self.index_document),

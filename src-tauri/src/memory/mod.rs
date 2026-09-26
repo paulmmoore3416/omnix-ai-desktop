@@ -51,6 +51,9 @@ pub struct MemoryRecord {
     /// Times recalled by search (kb-core extension).
     #[serde(default)]
     pub access_count: u32,
+    /// Times the user flagged it as wrong when recalled (kb-core extension).
+    #[serde(default)]
+    pub rejected: u32,
     /// 0–1 liveliness from importance, recency and use (kb-core extension).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub activation: Option<f32>,
@@ -195,6 +198,11 @@ pub trait MemoryStore: Send + Sync {
     /// Edit, pin or restore a memory.
     async fn update_memory(&self, _id: &str, _patch: Value) -> AppResult<Value> {
         Err(AppError::NotImplemented("memory editing"))
+    }
+    /// Recall feedback: `helpful = false` when a recalled memory was wrong or
+    /// beside the point (ranks it lower from then on), `true` when it helped.
+    async fn feedback(&self, _id: &str, _helpful: bool) -> AppResult<Value> {
+        Err(AppError::NotImplemented("recall feedback"))
     }
     /// Extract durable facts from the user's text and store them.
     async fn extract(&self, _text: &str) -> AppResult<Vec<Value>> {

@@ -14,6 +14,7 @@
     pinned?: boolean;
     reinforced?: number;
     accessCount?: number;
+    rejected?: number;
     activation?: number | null;
     collection?: string | null;
   }
@@ -34,6 +35,7 @@
     superseded_by: string;
     hidden_reason?: 'merged' | 'superseded' | null;
     reviewed?: boolean;
+    judged_by?: 'llm' | 'nli' | 'llm+nli' | 'similarity' | null;
   }
   interface KnowledgeBase {
     name: string;
@@ -96,6 +98,13 @@
     assistant: '🤖 assistant',
     extract: '🧠 learned',
     import: '📥 imported'
+  };
+  /** Who hid a memory (kb-core `judged_by`). */
+  const judgeLabel: Record<string, string> = {
+    llm: 'by the local model',
+    nli: 'by the NLI model',
+    'llm+nli': 'both judges agreed',
+    similarity: 'near-identical text'
   };
 
   onMount(loadData);
@@ -524,6 +533,9 @@
                     {#if memory.accessCount}
                       <span class="text-xs text-gray-400" title="recalled {memory.accessCount}×">👁 {memory.accessCount}</span>
                     {/if}
+                    {#if memory.rejected}
+                      <span class="text-xs text-amber-300" title="You flagged it as wrong {memory.rejected}× when it was recalled: it ranks lower. Edit it, or delete it if it is wrong.">👎 {memory.rejected}</span>
+                    {/if}
                   </div>
                   <div class="flex items-center gap-2">
                     {#if extended}
@@ -582,6 +594,9 @@
                       <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300">
                         {m.hidden_reason === 'merged' ? '🔀 merged into a duplicate' : '⏭ replaced by a newer fact'}
                       </span>
+                      {#if m.judged_by}
+                        <span class="text-xs text-gray-500 ml-1">{judgeLabel[m.judged_by] ?? m.judged_by}</span>
+                      {/if}
                       <p class="text-sm mt-2 whitespace-pre-wrap text-gray-300">{m.content}</p>
                       {#if m.created_at}<p class="text-xs text-gray-500 mt-1">{new Date(m.created_at).toLocaleString()}</p>{/if}
                     </div>

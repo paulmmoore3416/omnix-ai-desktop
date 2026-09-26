@@ -164,6 +164,7 @@ pub fn run() {
             commands::knowledge::save_memory,
             commands::knowledge::delete_memory,
             commands::knowledge::update_memory,
+            commands::knowledge::memory_feedback,
             commands::knowledge::list_hidden_memories,
             commands::knowledge::delete_document,
             commands::knowledge::sync_knowledge_folders,

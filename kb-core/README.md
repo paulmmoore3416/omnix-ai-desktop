@@ -39,6 +39,8 @@ From the repository root:
 ./scripts/setup-memory.sh                 # install/update, start, point OMNIX at it
 ./scripts/setup-memory.sh ~/notes         # … and keep ~/notes indexed live
 ./scripts/setup-memory.sh --lan           # serve other machines (bearer token required)
+./scripts/setup-memory.sh --nli           # add the NLI duplicate/contradiction judge (~90 MB, CPU)
+./scripts/setup-memory.sh --encrypt       # encrypt the database at rest (SQLCipher, key in the OS keyring)
 ```
 
 This installs the code to `~/.local/share/omnix/kb-core/app` with a private venv (numpy for fast search; kb-core
@@ -59,6 +61,7 @@ kb-core sync                           # re-scan watched folders now
 kb-core export ~/omnix-memory.jsonl    # backup (mode 600)
 kb-core import ~/omnix-memory.jsonl
 kb-core maintenance                    # merge duplicates, backfill, VACUUM
+kb-core encrypt / kb-core decrypt      # convert the database (service stopped)
 ```
 
 ## Configuration (`~/.config/omnix/kb-core.env`)
@@ -69,7 +72,9 @@ kb-core maintenance                    # merge duplicates, backfill, VACUUM
 | `KB_CORE_DB` | `~/.local/share/omnix/kb-core/memory.db` | SQLite file (created with mode 600). |
 | `KB_CORE_OLLAMA` | `http://127.0.0.1:11434` | Ollama base URL. |
 | `KB_CORE_EMBED_MODEL` | `nomic-embed-text` | Embedding model. Changing it triggers a background re-embed. |
-| `KB_CORE_LLM_MODEL` | OMNIX's chat model | Enables `/extract` and the duplicate/contradiction judge. Empty = off. |
+| `KB_CORE_LLM_MODEL` | OMNIX's chat model | Enables `/extract` and the LLM duplicate/contradiction judge. Empty = off. |
+| `KB_CORE_NLI_MODEL` | empty | Folder with an ONNX NLI cross-encoder (`setup-memory.sh --nli` installs `nli-deberta-v3-xsmall`). A second judge: with both set, a merge or replacement needs both to agree. |
+| `KB_CORE_ENCRYPTION` | empty | `keyring`: the database is SQLCipher-encrypted and the key is read from the OS keyring at start. Set by `setup-memory.sh --encrypt`. |
 | `KB_CORE_USER_NAME` | account's first name | Used for personalised retrieval and in captured memories. |
 | `KB_CORE_WATCH` | empty | `:`-separated folders to keep indexed; `name=/path` files a folder into a knowledge base. |
 | `KB_CORE_INDEX_CODE` | `1` | Also index source and config files in watched folders (`0` = notes and PDFs only). |
@@ -101,17 +106,28 @@ curl -s localhost:8100/search -H 'Content-Type: application/json' \
   an `Origin` header. It requires `Content-Type: application/json` on bodies (which a form post can't send), never
   answers CORS preflights, and, without a token, checks the `Host` header to defeat DNS rebinding.
 * **Private data at rest.** The DB file and exports are mode 600 and the service runs with `UMask=0077`. Logs
-  and analytics hold ids, counts and document names, never memory text.
+  and analytics hold ids, counts and document names, never memory text. Optionally the whole database is encrypted
+  with SQLCipher (page-level AES-256, so FTS5 and the WAL work unchanged); the random 256-bit key lives only in the
+  OS keyring, which must be unlocked for kb-core to start. Exports (`kb-core export`) are plain JSON: keep them
+  somewhere safe.
 * **Stored text is data.** kb-core never executes or renders it. The LLM prompts frame it as material to analyse
   and tell the model to ignore instructions inside it. OMNIX wraps everything it reads back as untrusted.
 * **Model-proposed changes are reversible.** Merged and superseded memories are hidden, not deleted, and can be
   restored (`PATCH /memories/{id}` with `{"superseded_by": null}`, or delete the memory that replaced them). List
   them with `GET /memories?hidden_only=true`. Each ruling counts as `needs_review` in `/stats` until the user restores
   it or keeps it (`PATCH {"reviewed": true}`).
+* **Two independent judges.** An 8B chat model at temperature 0 tends to call anything that shares entities a
+  duplicate. The optional NLI cross-encoder is trained for exactly the entailment/contradiction/neutral decision, and
+  fails differently (it can call two unrelated facts about one person contradictory, so a replacement needs
+  contradiction in both directions). With both configured, a merge or replacement needs both to agree; a
+  disagreement leaves both memories live and is counted in `/stats`.
+* **Negative feedback beats popularity.** Recall reinforces memories that get used; a memory the user flags as
+  wrong (`POST /memories/{id}/feedback`) ranks 0.6× lower per flag, so a better or newer memory wins. Only the user
+  restating it clears the flags.
 * **Provenance travels with every hit.** Search results carry `origin` (`user`, `extract`, `assistant`, `import`,
   `document`) so the caller can label unverified text as such.
-* **Standard library only**, apart from optional numpy (and `pdftotext` for PDFs, run with fixed arguments and a
-  timeout). The whole service is about 3,200 lines of Python.
+* **Standard library only**, apart from optional numpy, optional onnxruntime + tokenizers (NLI judge), optional
+  sqlcipher3 + keyring (encryption), and `pdftotext` for PDFs (run with fixed arguments and a timeout). The whole service is about 3,200 lines of Python.
 
 ## Development
 

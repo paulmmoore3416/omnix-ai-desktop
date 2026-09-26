@@ -38,8 +38,11 @@ Most recent memories, newest first. `n` ≤ 500. Superseded memories are exclude
 (extension: `include_superseded=true`, `hidden_only=true` for just the merged and
 superseded ones, `offset`, `category`, `order=activation`). Hidden memories carry
 `superseded_by`, `hidden_reason` (`merged` | `superseded`) and `reviewed`
-(the user checked the ruling and kept it); both kinds are restorable. Every new
-ruling starts unreviewed, and restoring resets the flag.
+(the user checked the ruling and kept it) and `judged_by` (`llm`, `nli`,
+`llm+nli` when both judges agreed, or `similarity` for near-identical text); both
+kinds are restorable. Every new ruling starts unreviewed, and restoring resets the
+flag. Every memory carries `rejected`: how many times the user flagged it as wrong
+when it was recalled.
 
 ```json
 { "memories": [
@@ -109,7 +112,10 @@ key results are sorted by). Results may be memories or document chunks. For a
 chunk, `content` starts with its breadcrumb (`notes.md › Backups › ZFS`), `kind`
 is `document`, and `source` is the document name. `origin` (extension) is the
 provenance: `user`, `extract`, `assistant` or `import` for memories, `document`
-for chunks. OMNIX turns it into a trust label for the model. `degraded: true` means the
+for chunks. OMNIX turns it into a trust label for the model. `rejected` (extension)
+counts the user's "this was wrong" flags; each one multiplies the memory's rank by
+0.6 (at most four count), so it sorts below better matches but is still returned
+when it is the only one. `degraded: true` means the
 embedding model was unreachable and results are keyword-only.
 
 Optional request fields (extension): `min_score` (0–1; OMNIX's auto-recall
@@ -137,9 +143,10 @@ a native file dialog and that passed the credential-path policy.
 
 | Endpoint | Purpose | OMNIX uses it for |
 |---|---|---|
-| `GET /stats` | Counts, categories, sources, storage, models, search latency, watch status, activity feed (no memory text); `superseded` (hidden memories) and `needs_review` (hidden and not yet reviewed) | Knowledge view header, review banner and Analytics |
+| `GET /stats` | Counts, categories, sources, storage, models, search latency, watch status, activity feed (no memory text); `superseded` (hidden memories), `needs_review` (hidden and not yet reviewed), `flagged_wrong`, `nli_model`, `judge` (`llm`, `nli`, `llm+nli`), `judge_disagreements_30d`, `encrypted` | Knowledge view header, review banner and Analytics; `doctor.sh` |
 | `GET /memories/{id}` | One memory plus its links (`related`, `supersedes`) | — |
 | `PATCH /memories/{id}` | Edit `content`, `tags`, `importance`, `category`, `pinned`; `{"superseded_by": null}` restores a merged or superseded memory; `{"reviewed": true}` keeps the model's ruling (hidden memories only) | Pin button; Restore and Keep in "Merged & replaced memories" |
+| `POST /memories/{id}/feedback` | `{"helpful": false}` flags a recalled memory as wrong or beside the point (`rejected + 1`); `true` takes one flag back and counts as a use. Changes ranking only, never hides. The user restating the memory clears its flags; the assistant or an import re-saving it doesn't. Returns the memory. | 👍/👎 under a reply's "Memories used" |
 | `GET /documents` | `{documents: [{id, name, mime_type, size, chunks, source_path, pending, …}]}` | Documents tab |
 | `GET /documents/{id}` | Full text plus chunks | — |
 | `DELETE /documents/{id}` | Remove a document and its chunks | Documents tab |

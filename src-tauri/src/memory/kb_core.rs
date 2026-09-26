@@ -265,6 +265,16 @@ impl MemoryStore for KbCoreStore {
         .await
     }
 
+    async fn feedback(&self, id: &str, helpful: bool) -> AppResult<Value> {
+        validate_id(id)?;
+        self.ext(
+            self.req(reqwest::Method::POST, &format!("/memories/{id}/feedback"))
+                .json(&json!({ "helpful": helpful })),
+            "recall feedback",
+        )
+        .await
+    }
+
     async fn extract(&self, text: &str) -> AppResult<Vec<Value>> {
         let v = self
             .ext(

@@ -16,6 +16,8 @@ index is always authoritative.
     import FILE                     restore/merge an export
     maintenance                     consolidate duplicates, backfill, compact
     migrate-legacy DB               import memories from the kb-core 1.x database
+    encrypt                         encrypt the database at rest (service stopped)
+    decrypt                         turn an encrypted database back into plain SQLite
 """
 
 from __future__ import annotations
@@ -74,16 +76,28 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
     cfg = Config.from_env()
     cfg.validate()
+    nli = None
+    if cfg.nli_model:
+        from .llm import ModelUnavailable
+        from .nli import NliJudge
+
+        try:
+            nli = NliJudge(cfg.nli_model)
+        except ModelUnavailable as e:
+            # Optional: the LLM judge (if any) keeps working on its own.
+            logging.getLogger("kb-core").warning("NLI judge off: %s", e)
     kb = KnowledgeBase(
         cfg,
         OllamaEmbedder(cfg.ollama, cfg.embed_model),
         OllamaChat(cfg.ollama, cfg.llm_model) if cfg.llm_model else None,
+        nli,
     )
     kb.start_worker()
     sync = FolderSync(kb, cfg.watch, cfg.watch_interval)
     sync.start()
     logging.getLogger("kb-core").info(
-        "kb-core %s: embed=%s llm=%s watch=%s", __version__, cfg.embed_model, cfg.llm_model or "off",
+        "kb-core %s: embed=%s llm=%s nli=%s encrypted=%s watch=%s", __version__, cfg.embed_model,
+        cfg.llm_model or "off", nli.model if nli else "off", "yes" if cfg.db_key else "no",
         ", ".join(f"{c + '=' if c else ''}{p}" for c, p in cfg.watch) or "off",
     )
     serve(cfg, kb, sync)
@@ -256,6 +270,49 @@ def cmd_migrate_legacy(args: argparse.Namespace) -> int:
     return 0
 
 
+def _require_stopped(args: argparse.Namespace) -> Path:
+    """Conversion rewrites the file under the service: refuse while it runs."""
+    try:
+        urllib.request.urlopen(args.url.rstrip("/") + "/health", timeout=2).close()
+    except urllib.error.HTTPError:
+        pass  # something answered (e.g. 401): it is running
+    except (urllib.error.URLError, OSError):
+        from .config import default_data_dir
+
+        return Path(os.environ.get("KB_CORE_DB") or default_data_dir() / "kb.sqlite3").expanduser()
+    raise SystemExit("kb-core is running: stop it first (systemctl --user stop omnix-kb-core)")
+
+
+def cmd_encrypt(args: argparse.Namespace) -> int:
+    from .crypto import convert, create_key, is_plain_sqlite
+
+    path = _require_stopped(args)
+    if not path.exists():
+        raise SystemExit(f"{path} does not exist yet: start kb-core once, or set KB_CORE_ENCRYPTION=keyring "
+                         "before the first start to create it encrypted")
+    if not is_plain_sqlite(path):
+        print(f"{path} is already encrypted")
+        return 0
+    key = create_key()
+    items, docs, links = convert(path, None, key)
+    print(f"encrypted {path} ({items} items, {docs} documents, {links} links); key in the OS keyring. "
+          "Set KB_CORE_ENCRYPTION=keyring in kb-core.env.")
+    return 0
+
+
+def cmd_decrypt(args: argparse.Namespace) -> int:
+    from .crypto import convert, is_plain_sqlite, load_key
+
+    path = _require_stopped(args)
+    if is_plain_sqlite(path):
+        print(f"{path} is not encrypted")
+        return 0
+    items, docs, links = convert(path, load_key(), None)
+    print(f"decrypted {path} ({items} items, {docs} documents, {links} links). "
+          "Remove KB_CORE_ENCRYPTION from kb-core.env.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(
         level=os.environ.get("KB_CORE_LOG", "INFO").upper(),
@@ -299,6 +356,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("file")
     s.set_defaults(fn=cmd_import)
     sub.add_parser("maintenance").set_defaults(fn=cmd_maintenance)
+    sub.add_parser("encrypt").set_defaults(fn=cmd_encrypt)
+    sub.add_parser("decrypt").set_defaults(fn=cmd_decrypt)
     s = sub.add_parser("migrate-legacy")
     s.add_argument("db")
     s.set_defaults(fn=cmd_migrate_legacy)

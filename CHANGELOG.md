@@ -35,6 +35,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `clean_memory_patch`: the IPC whitelist for memory edits is a tested function; the webview can restore a memory or
   mark a ruling reviewed but never hide one.
 
+- **Second judge for consolidation (optional).** `setup-memory.sh --nli` installs a small NLI cross-encoder
+  (`nli-deberta-v3-xsmall`, ONNX int8, CPU, ~40 ms per pair; pinned revision, SHA-256-checked). It rules
+  duplicates (entailment ≥ 0.9, no contradiction either way) and replacements (contradiction ≥ 0.8 in *both*
+  directions). With the LLM judge also on, a merge or replacement needs both to agree; disagreements keep both
+  memories live and are counted (`/stats` → `judge_disagreements_30d`). Hidden memories show who decided
+  (`judged_by`). kb-core schema v4 (`items.rejected`, `items.judge`, migrated automatically).
+- **Recall feedback.** Replies list the memories auto-recall used (**🧠 Memories used**, new `recalled` chat event)
+  with 👍/👎. 👎 (`memory_feedback` → `POST /memories/{id}/feedback`) multiplies the memory's rank by 0.6 per flag,
+  so a heavily used but wrong memory stops winning; it is never hidden and still answers when it is the only match.
+  Only the user restating the fact clears the flags. The Knowledge view shows 👎 *n*; `/stats` → `flagged_wrong`.
+- **Encryption at rest (opt-in).** `setup-memory.sh --encrypt` / `kb-core encrypt` convert the database to SQLCipher
+  (whole file, so FTS5 keeps working) with a random 256-bit key kept only in the OS keyring; `kb-core decrypt`
+  reverses it. Conversion is integrity-checked and atomic. `doctor.sh` reports the judges, encryption and the
+  review backlog.
+
 **Fixed**
 - Import no longer brings merged or superseded history back as live memories (`history_skipped` in the result).
 

@@ -5,7 +5,7 @@
   import { listen } from '@tauri-apps/api/event';
   import { renderMarkdown } from '$lib/markdown';
   import { speak, startRecording, transcribe, type Recording } from '$lib/voice';
-  import type { Settings, SystemStatus, UiEvent, OpsEvent } from '$lib/types';
+  import type { Settings, SystemStatus, UiEvent, OpsEvent, RecalledMemory } from '$lib/types';
   import { conditionForError, type Condition, type Emotion, type Signal, type SignalKind } from '$lib/avatar';
   import Avatar from '$lib/components/Avatar.svelte';
   import SettingsView from '$lib/components/SettingsView.svelte';
@@ -14,7 +14,14 @@
   
   let currentView = $state('home');
   let userInput = $state('');
-  type Message = { role: 'user' | 'assistant'; content: string; timestamp: Date; notes: string[] };
+  type Recall = RecalledMemory & { vote?: 'helpful' | 'wrong' };
+  type Message = {
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: Date;
+    notes: string[];
+    recalled?: Recall[];
+  };
   let messages = $state<Message[]>([]);
   let isSpeaking = $state(false);
   let isProcessing = $state(false);
@@ -247,6 +254,9 @@
           reply.notes.push(`${ev.ok ? '✓' : '✗'} ${ev.name}: ${ev.summary}`);
           pulse(ev.ok ? 'ok' : 'fail', ev.name, ev.id);
           break;
+        case 'recalled':
+          reply.recalled = ev.memories.map((m) => ({ ...m }));
+          break;
         case 'notice':
           reply.notes.push(`ℹ ${ev.message}`);
           pulse('notice');
@@ -258,6 +268,16 @@
       }
     };
     await call('chat_send', { message: query, onEvent: channel });
+  }
+
+  /** Recall feedback: 👎 ranks the memory lower from now on, 👍 undoes one flag. */
+  async function recallFeedback(message: Message, m: Recall, helpful: boolean) {
+    try {
+      await call('memory_feedback', { id: m.id, helpful });
+      m.vote = helpful ? 'helpful' : 'wrong';
+    } catch (e) {
+      message.notes.push(`✗ memory feedback failed: ${errorMessage(e)}`);
+    }
   }
 
   async function stopResponse() {
@@ -724,6 +744,25 @@
                     <ul class="mt-2 space-y-1 text-xs text-gray-400">
                       {#each message.notes as note}<li>{note}</li>{/each}
                     </ul>
+                  {/if}
+                  {#if message.recalled?.length}
+                    <details class="mt-2 text-xs text-gray-400">
+                      <summary class="cursor-pointer hover:text-white">🧠 Memories used ({message.recalled.length})</summary>
+                      <ul class="mt-1 space-y-1">
+                        {#each message.recalled as m (m.id)}
+                          <li class="flex items-start gap-2">
+                            <!-- Memory text is data: plain-text interpolation only. -->
+                            <span class="flex-1">{m.preview}</span>
+                            {#if m.vote}
+                              <span class="shrink-0">{m.vote === 'wrong' ? 'Flagged: ranked lower from now on' : 'Thanks'}</span>
+                            {:else}
+                              <button class="shrink-0 hover:text-white" title="This memory helped" onclick={() => recallFeedback(message, m, true)}>👍</button>
+                              <button class="shrink-0 hover:text-white" title="Wrong or not relevant: rank it lower (it is not deleted)" onclick={() => recallFeedback(message, m, false)}>👎</button>
+                            {/if}
+                          </li>
+                        {/each}
+                      </ul>
+                    </details>
                   {/if}
                 </div>
               </div>

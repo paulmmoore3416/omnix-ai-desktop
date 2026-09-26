@@ -179,6 +179,8 @@ On each client: `./scripts/bootstrap.sh --no-services`, then in **Settings**:
 ./scripts/setup-memory.sh                        # install/update the service and point OMNIX at it
 ./scripts/setup-memory.sh ~/notes ~/some-kb-repo # … and keep these folders indexed live
 ./scripts/setup-memory.sh --lan                  # headless server: serve other machines (bearer token)
+./scripts/setup-memory.sh --nli                  # second duplicate/contradiction judge (NLI model, ~90 MB, CPU)
+./scripts/setup-memory.sh --encrypt              # encrypt memory.db at rest (SQLCipher, key in the OS keyring)
 ```
 
 The script pulls `nomic-embed-text` into Ollama and installs the code with a private venv under
@@ -197,11 +199,13 @@ It migrates memories from kb-core 1.x once, sets `memory.backend_url`, and insta
 | Settings (models, folders, name) | edit `~/.config/omnix/kb-core.env`, then `systemctl --user restart omnix-kb-core` |
 | Back up / restore | `kb-core export ~/memory.jsonl` · `kb-core import ~/memory.jsonl` (or Knowledge → Export/Import) |
 | Tidy up (merge duplicates, compact) | `kb-core maintenance` (or Knowledge → Optimize) |
-| Run without being logged in (headless) | `sudo loginctl enable-linger $USER` |
+| Run without being logged in (headless) | `sudo loginctl enable-linger $USER` (not with `--encrypt`: the key needs an unlocked keyring) |
+| Undo encryption | `systemctl --user stop omnix-kb-core && kb-core decrypt`, remove `KB_CORE_ENCRYPTION` from `kb-core.env`, start it again |
 
 **GPU/VRAM:** `nomic-embed-text` is about 0.3 GB and stays resident alongside the chat model. Fact capture and the
 contradiction judge reuse the chat model already loaded by OMNIX, so they add no VRAM (only a few seconds of GPU
-time after a reply, in the background).
+time after a reply, in the background). The optional NLI judge (`--nli`) runs on the CPU with two threads (about
+40 ms per comparison, ~150 MB RAM) and uses no VRAM.
 
 **More kb-core options** (`~/.config/omnix/kb-core.env`): `KB_CORE_WATCH=notes=/home/you/notes:work=/srv/docs`
 files folders into knowledge bases; `KB_CORE_INDEX_CODE=0` limits indexing to notes and PDFs (PDFs need

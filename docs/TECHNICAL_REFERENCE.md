@@ -178,6 +178,7 @@ All commands return `AppResult<T>`; errors arrive as `{kind, message}` (§10). A
 | `save_memory` | `content`, `tags`, `importance`, `category`, `collection?` | `{id, status, related}` | `POST /memories` |
 | `delete_memory` | `id` | `()` | `DELETE /memories/{id}` |
 | `update_memory` | `id`, `patch` (`pinned`, `superseded_by: null`, `reviewed`, `importance`, `category`, `tags`, `content`; anything else is refused by `clean_memory_patch`) | memory | `PATCH /memories/{id}` |
+| `memory_feedback` | `id`, `helpful` | memory | `POST /memories/{id}/feedback` (ranking only; never hides) |
 | `list_hidden_memories` | `limit` | `[{id, content, superseded_by, hidden_reason, reviewed, …}]` (only rows that really are hidden) | `GET /memories?hidden_only=true` |
 | `semantic_search` | `query`, `limit`, `collection?` | `[{id, content, score, similarity, kind, source, collection, tags, timestamp}]` | `POST /search` |
 | `index_document` | `path`, `collection?` | chunks (`u32`) | guarded read → `POST /documents` |
@@ -249,6 +250,7 @@ Still 🚧 (`not_implemented`): `test_integration`.
 | `token` | `text` | Assistant text fragment |
 | `tool_call` | `id`, `name`, `arguments` | A tool was requested (also emitted for automatic `memory_recall`) |
 | `tool_result` | `id`, `name`, `ok`, `summary` (≤ 200 chars) | A tool finished |
+| `recalled` | `memories: [{id, preview (≤ 160 chars, plain text), origin}]` | The memories auto-recall used this turn (documents excluded); drives 👍/👎 recall feedback |
 | `notice` | `message` | Informational (step limit, "Stopped.", MCP warnings, "🧠 Remembered: …") |
 | `error` | `message` | The turn failed |
 | `done` | — | The turn finished |
@@ -367,7 +369,7 @@ File: `~/.config/omnix/settings.json`. Unknown fields are ignored and missing fi
 | `confirmation_timeout_secs` | `60` | Timeout = deny |
 | `autonomous_mode` / `max_autonomous_steps` | `false` / `10` | Up to 50 |
 | `log_all_commands`, `audit_log` | `true` | Informational (always on) |
-| `encrypt_memory` | `false` | Planned |
+| `encrypt_memory` | `false` | Unused. Encryption at rest is a kb-core setting: `setup-memory.sh --encrypt` |
 
 ### `voice`
 
@@ -435,12 +437,20 @@ Source: `kb-core/kb_core/`. Standard library + optional numpy. See also the [con
   then serves HTTP with `ThreadingHTTPServer`.
 - One SQLite connection (WAL, `foreign_keys`, `synchronous=NORMAL`) guarded by one `RLock`. Embedding and LLM calls
   happen **outside** the lock.
-- The worker: warms the calibration set, then loops (wake on event or every 30 s) running queued LLM judge jobs and
-  the embedding backfill.
+- The worker: warms the calibration set, then loops (wake on event or every 30 s) running queued judge jobs (LLM
+  and/or NLI; with both, a merge or replacement needs both to agree, a disagreement is logged as `judge_disagreed`)
+  and the embedding backfill.
 - Every other CLI subcommand is an HTTP client of the running service (single writer; the in-memory index stays
   authoritative).
 
-### 12.2 Schema (`PRAGMA user_version = 3`)
+### 12.2 Schema (`PRAGMA user_version = 4`)
+
+v4 adds `items.rejected` (count of the user's "this recalled memory was wrong" flags; rank × 0.6 per flag, at most
+four count; ordering only) and `items.judge` (who hid a memory: `llm`, `nli`, `llm+nli`, `similarity`; cleared on
+restore). `migrate_v4` is idempotent. An encrypted database (SQLCipher, `KB_CORE_ENCRYPTION=keyring`) has the same
+schema; every connection, including the per-thread read-only ones, is keyed with the raw 256-bit key from the OS
+keyring (`crypto.py`), and `kb-core encrypt`/`decrypt` convert with `sqlcipher_export` into an integrity-checked
+temporary file that atomically replaces the original.
 
 v3 adds `items.reviewed` (0/1, default 0): set when the user keeps a merged or superseded ruling, cleared by every
 new ruling and by a restore. `migrate_v3` runs automatically and is idempotent; a v1 database migrates to v3 in one
@@ -456,7 +466,7 @@ idempotent. Consolidation, duplicate merging and maintenance never cross collect
 |---|---|
 | `meta(key, value)` | `embed_model` |
 | `documents(id, name UNIQUE, mime_type, size, content_hash, content, source_path, source_mtime, chunks, created_at, updated_at)` | Full document text is kept (re-chunking, export) |
-| `items(pk INTEGER PK, id UNIQUE, kind 'memory'\|'chunk', doc_id → documents ON DELETE CASCADE, ord, context, content, tags JSON, category, importance, source, pinned, created_at, updated_at, last_accessed, access_count, reinforced, superseded_by, content_hash, vec BLOB)` | Memories and chunks; `vec` NULL = pending embedding |
+| `items(pk INTEGER PK, id UNIQUE, kind 'memory'\|'chunk', doc_id → documents ON DELETE CASCADE, ord, context, content, tags JSON, category, importance, source, pinned, created_at, updated_at, last_accessed, access_count, reinforced, superseded_by, content_hash, vec BLOB, reviewed, rejected, judge)` | Memories and chunks; `vec` NULL = pending embedding |
 | `items_fts` (FTS5, external content, `porter unicode61 remove_diacritics 2`) | Columns `content`, `context`, `tags`; kept in sync by triggers |
 | `links(src, dst, kind 'related'\|'supersedes', weight, created_at)` | Memory graph, cascades on delete |
 | `events(pk, ts, kind, detail JSON)` | Activity for analytics; ids/counts/names only; pruned to 2,000 |

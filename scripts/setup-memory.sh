@@ -22,7 +22,14 @@
 #                ~/.config/omnix/kb-core.token, mode 600). Enter the token in
 #                OMNIX → Settings → Memory on the other machines.
 #   --no-llm     don't use a chat model (disables fact capture and the
-#                duplicate/contradiction judge)
+#                LLM duplicate/contradiction judge)
+#   --nli        add a second duplicate/contradiction judge: a small NLI model
+#                (nli-deberta-v3-xsmall, ONNX, ~90 MB, CPU only; pinned
+#                revision, checksums verified). With both judges a merge or
+#                replacement needs both to agree. --no-nli turns it off.
+#   --encrypt    encrypt the memory database at rest (SQLCipher; the key is
+#                generated once into the OS keyring). The keyring must be
+#                unlocked for kb-core to start. Undo: kb-core decrypt.
 #
 # Environment overrides:
 #   OMNIX_KB_PORT         kb-core port             (default 8100)
@@ -46,12 +53,17 @@ URL="http://127.0.0.1:$PORT"
 
 LAN=0
 USE_LLM=1
+NLI=""      # "" = keep the current setting
+ENCRYPT=0
 FOLDERS=()
 for arg in "$@"; do
   case "$arg" in
     --lan) LAN=1 ;;
     --no-llm) USE_LLM=0 ;;
-    -h|--help) sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --nli) NLI=1 ;;
+    --no-nli) NLI=0 ;;
+    --encrypt) ENCRYPT=1 ;;
+    -h|--help) sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "Unknown option: $arg (see --help)"; exit 2 ;;
     *) FOLDERS+=("$arg") ;;
   esac
@@ -105,7 +117,42 @@ fi
 if "$KB_DIR/venv/bin/python" -c 'import numpy' 2>/dev/null; then ok "numpy present"
 elif "$KB_DIR/venv/bin/pip" install -q --disable-pip-version-check numpy; then ok "numpy installed (fast vector search)"
 else echo "  warn numpy could not be installed; using the pure-Python vector search"; fi
-ok "$(PYTHONPATH="$KB_DIR/app" "$KB_DIR/venv/bin/python" -m kb_core --version)"
+pipi() { "$KB_DIR/venv/bin/pip" install -q --disable-pip-version-check "$@"; }
+kbpy() { PYTHONPATH="$KB_DIR/app" "$KB_DIR/venv/bin/python" "$@"; }
+
+# Optional NLI judge. Pinned model revision + SHA-256 per file: this model
+# rules on which memories get hidden, so it must be exactly the one reviewed.
+NLI_REPO="cross-encoder/nli-deberta-v3-xsmall"
+NLI_REV="a150876415327c80daeff35ca6f68f5ed8cf5c24"
+NLI_DIR="$KB_DIR/nli/nli-deberta-v3-xsmall"
+if [[ $NLI == 1 ]]; then
+  pipi onnxruntime tokenizers || die "could not install onnxruntime/tokenizers for the NLI judge"
+  if grep -qw avx2 /proc/cpuinfo 2>/dev/null; then
+    NLI_MODEL_FILE="onnx/model_quint8_avx2.onnx"; NLI_MODEL_SHA="21b14751a95520953bfcc607ceeb617de7cbeaeb6d60f4c8966716c743985337"
+  else
+    NLI_MODEL_FILE="onnx/model.onnx"; NLI_MODEL_SHA="7105da41f625c42eca24e9465ec99150d02a80e644659d7a1daa93a6357155d4"
+  fi
+  install -d -m 700 "$NLI_DIR"
+  while read -r f sha; do
+    dest="$NLI_DIR/$(basename "$f")"
+    if [[ -s "$dest" ]] && echo "$sha  $dest" | sha256sum -c --status; then continue; fi
+    curl -fsSL --retry 3 -o "$dest.part" "https://huggingface.co/$NLI_REPO/resolve/$NLI_REV/$f" || die "download failed: $f"
+    echo "$sha  $dest.part" | sha256sum -c --status || { rm -f "$dest.part"; die "checksum mismatch for $f"; }
+    mv "$dest.part" "$dest"
+  done <<EOF
+config.json 8d9f07bf7ba54a6fc3b1962483056f94c39dcf188db4cf61843e1c88f94b2342
+tokenizer.json 5124ef2ead1a10a717703bc436de7f353da76d6340e4587719b42b1693707964
+$NLI_MODEL_FILE $NLI_MODEL_SHA
+EOF
+  kbpy -c "from pathlib import Path; from kb_core.nli import NliJudge; NliJudge(Path('$NLI_DIR'))" 2>/dev/null \
+    || die "the NLI model in $NLI_DIR does not load"
+  ok "NLI judge $(basename "$NLI_DIR") ($(basename "$NLI_MODEL_FILE"))"
+fi
+if [[ $ENCRYPT == 1 ]]; then
+  pipi sqlcipher3-binary keyring || die "could not install sqlcipher3-binary/keyring for encryption"
+  ok "SQLCipher + keyring installed"
+fi
+ok "$(kbpy -m kb_core --version)"
 
 # --- 3. configuration -------------------------------------------------------
 install -d -m 700 "$CONF_DIR"
@@ -136,6 +183,24 @@ setenv() {  # setenv KEY VALUE: replace or append a line in the env file
 getenv() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -1; }
 if [[ -n "$LLM_MODEL" && -z "$(getenv KB_CORE_LLM_MODEL)" ]]; then setenv KB_CORE_LLM_MODEL "$LLM_MODEL"; fi
 if [[ $USE_LLM == 0 ]]; then setenv KB_CORE_LLM_MODEL ""; fi
+if [[ $NLI == 1 ]]; then setenv KB_CORE_NLI_MODEL "$NLI_DIR"; fi
+if [[ $NLI == 0 ]]; then setenv KB_CORE_NLI_MODEL ""; fi
+
+if [[ $ENCRYPT == 1 ]]; then
+  step "Encrypting the memory database"
+  systemctl --user stop omnix-kb-core.service 2>/dev/null || true
+  DB="$(getenv KB_CORE_DB)"
+  if [[ -s "$DB" ]]; then
+    # Converts in place (temporary copy, integrity-checked, atomic swap);
+    # creates the keyring key on first use. No-op if already encrypted.
+    KB_CORE_DB="$DB" kbpy -m kb_core --url "$URL" encrypt || die "encryption failed; the database is unchanged"
+  else
+    kbpy -c 'from kb_core.crypto import create_key; create_key()' || die "could not create the key in the OS keyring"
+    ok "new database will be created encrypted"
+  fi
+  setenv KB_CORE_ENCRYPTION keyring
+  ok "KB_CORE_ENCRYPTION=keyring"
+fi
 
 if ! grep -q '^KB_CORE_USER_NAME=' "$ENV_FILE"; then
   # First name from the account's full name (or git), so first-person

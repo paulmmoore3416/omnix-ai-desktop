@@ -140,7 +140,6 @@ for the threat model. The story behind it: [`docs/articles/medium-omnix-kb-core.
 
 - AIORC gRPC routing backend (scaffolded; awaiting its `.proto`)
 - Signed releases and auto-update
-- Memory encryption at rest
 - Multi-host view (several OMNIX servers in one System Control)
 
 ## Links
