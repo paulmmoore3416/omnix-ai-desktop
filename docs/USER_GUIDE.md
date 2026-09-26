@@ -104,6 +104,10 @@ things between conversations and knows your notes:
 - **It recalls on its own.** Before answering, OMNIX looks up memories and notes related to your message. When
   something relevant turns up, the reply shows a `✓ memory_recall` note. Ask *"what editor do I use?"* or *"write a
   script to back up my Proxmox VMs"* and it already has the context.
+- **Tell it when a memory was wrong.** Under a reply, open **🧠 Memories used** to see which memories shaped it.
+  Press 👎 on one that was wrong or beside the point and it ranks lower from then on, so better or newer memories win
+  (it isn't deleted, and it still comes back if it's the only match). 👍 says it helped. To fix the memory itself,
+  edit or delete it in the Knowledge view, or just tell OMNIX the right fact.
 - **Tell it to remember.** *"Remember that my NAS is at 10.0.0.5."* It saves that as a memory. Saying the same thing
   twice strengthens the memory instead of duplicating it. If you later say something that contradicts it (*"I moved
   the NAS to 10.0.0.9"*), the old memory is retired automatically. You can still see it, and delete the new one to
@@ -117,7 +121,9 @@ things between conversations and knows your notes:
 In the **Knowledge** view you can add, pin (📌 = never fades) or delete memories, see where each came from (✍️ you,
 🤖 assistant, 🧠 learned, 📥 imported), search everything, manage indexed documents, and see what the memory engine
 is doing (**Analytics**). **Export** saves everything to a file only you can read, **Import** merges one back in, and
-**Optimize** tidies up duplicates.
+**Optimize** tidies up duplicates. To encrypt the memory database on disk, run `./scripts/setup-memory.sh --encrypt`
+once (the key is kept in your login keyring, so the memory service starts only after you've logged in and the
+keyring is unlocked).
 
 Everything stays on your computer: the memory database, the embedding model, and the learning model all run
 locally.
@@ -361,10 +367,21 @@ keyword-only for now (nothing is lost; it catches up by itself).
   memory was reinforced"* instead of getting a duplicate.
 - Each memory shows its **category**, **importance stars**, and **where it came from**:
   ✍️ you · 🤖 assistant (the AI saved it because you asked) · 🧠 learned (from a conversation) · 📥 imported.
-- 🔁 *n* = how many times you've said it again; 👁 *n* = how many times OMNIX recalled it.
+- 🔁 *n* = how many times you've said it again; 👁 *n* = how many times it was looked up on purpose (by the
+  assistant's memory search). The automatic recall before each reply doesn't count, so a memory can't make itself
+  stronger just by being recalled. 👎 *n* = how many times you flagged it as wrong under a reply; each flag ranks it
+  lower. Saying the fact again yourself clears the flags.
 - The small bar on the right is how **present** the memory is. Important, recent and often-used memories are strong;
   old, unused ones slowly fade (they're never deleted by fading, just ranked lower).
-- 📌 **Pin** a memory so it never fades. 🗑️ deletes it.
+- 📌 **Pin** a memory so it never fades. 🗑️ deletes it. Fading only changes the order: an old memory that answers
+  your question is still recalled.
+- **🗂 Merged & replaced memories** (at the bottom) lists memories OMNIX hid because the local model decided they
+  duplicated another one (🔀 *merged*) or that a newer fact replaced them (⏭ *replaced*). Nothing there is deleted.
+  If the model got it wrong, press **↩ Restore** and the memory comes back exactly as it was. If it was right, press
+  **✓ Keep**. Each entry says who decided: *by the local model*, *by the NLI model*, *both judges agreed* (with the
+  optional second judge from `./scripts/setup-memory.sh --nli`, both must agree before anything is hidden), or
+  *near-identical text*. New decisions are listed first, and until you've checked them a yellow banner at the top of the
+  Knowledge view says how many are waiting (Analytics shows the same count as *Awaiting your review*).
 
 ### 📄 Documents
 

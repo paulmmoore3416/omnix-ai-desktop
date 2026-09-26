@@ -14,6 +14,7 @@
     pinned?: boolean;
     reinforced?: number;
     accessCount?: number;
+    rejected?: number;
     activation?: number | null;
     collection?: string | null;
   }
@@ -26,6 +27,15 @@
     tags: string[];
     kind: string;
     source: string;
+  }
+  interface HiddenMemory {
+    id: string;
+    content: string;
+    created_at?: string | null;
+    superseded_by: string;
+    hidden_reason?: 'merged' | 'superseded' | null;
+    reviewed?: boolean;
+    judged_by?: 'llm' | 'nli' | 'llm+nli' | 'similarity' | null;
   }
   interface KnowledgeBase {
     name: string;
@@ -61,6 +71,9 @@
   let documents = $state<Doc[]>([]);
   let data = $state<KnowledgeData | null>(null);
 
+  let hidden = $state<HiddenMemory[] | null>(null);
+  let showHidden = $state(false);
+
   let newMemory = $state({ content: '', tags: '', importance: 5, category: 'general' });
   let targetKb = $state('');
   let searchKb = $state('');
@@ -85,6 +98,13 @@
     assistant: '🤖 assistant',
     extract: '🧠 learned',
     import: '📥 imported'
+  };
+  /** Who hid a memory (kb-core `judged_by`). */
+  const judgeLabel: Record<string, string> = {
+    llm: 'by the local model',
+    nli: 'by the NLI model',
+    'llm+nli': 'both judges agreed',
+    similarity: 'near-identical text'
   };
 
   onMount(loadData);
@@ -152,6 +172,41 @@
     return run(async () => {
       await call('update_memory', { id: m.id, patch: { pinned: !m.pinned } });
       await loadData();
+    });
+  }
+
+  async function loadHidden() {
+    const rows = await call<HiddenMemory[]>('list_hidden_memories', { limit: 200 });
+    // Unchecked rulings first; newest first within each group (server order).
+    hidden = [...rows.filter((m) => !m.reviewed), ...rows.filter((m) => m.reviewed)];
+  }
+
+  function toggleHidden() {
+    showHidden = !showHidden;
+    if (showHidden) return run(loadHidden);
+  }
+
+  function openReview() {
+    activeTab = 'memories';
+    showHidden = true;
+    return run(loadHidden);
+  }
+
+  // Agree with the model's ruling: the memory stays hidden and stops counting
+  // as "needs review". Restore remains available afterwards.
+  function keepRuling(m: HiddenMemory) {
+    return run(async () => {
+      await call('update_memory', { id: m.id, patch: { reviewed: true } });
+      await Promise.all([loadData(), loadHidden()]);
+    });
+  }
+
+  // Undo a consolidation ruling: the memory returns exactly as it was.
+  function restoreMemory(m: HiddenMemory) {
+    return run(async () => {
+      await call('update_memory', { id: m.id, patch: { superseded_by: null } });
+      flash('Restored. The memory is back in recall.');
+      await Promise.all([loadData(), loadHidden()]);
     });
   }
 
@@ -361,6 +416,14 @@
     <div class="glass-panel p-3 mb-4 bg-red-500/20 text-sm" role="alert">{lastError}</div>
   {/if}
 
+  {#if extended && (data?.needsReview ?? 0) > 0}
+    <button onclick={openReview} disabled={isProcessing}
+      class="glass-panel w-full p-3 mb-4 bg-amber-500/15 hover:bg-amber-500/25 text-sm text-left">
+      🗂 {data?.needsReview} memory {data?.needsReview === 1 ? 'change' : 'changes'} by the local model to review:
+      merged duplicates and replaced facts are hidden, not deleted. Check them →
+    </button>
+  {/if}
+
   <!-- Stats Overview -->
   <div class="grid grid-cols-4 gap-4 mb-6">
     <div class="glass-panel p-4">
@@ -470,6 +533,9 @@
                     {#if memory.accessCount}
                       <span class="text-xs text-gray-400" title="recalled {memory.accessCount}×">👁 {memory.accessCount}</span>
                     {/if}
+                    {#if memory.rejected}
+                      <span class="text-xs text-amber-300" title="You flagged it as wrong {memory.rejected}× when it was recalled: it ranks lower. Edit it, or delete it if it is wrong.">👎 {memory.rejected}</span>
+                    {/if}
                   </div>
                   <div class="flex items-center gap-2">
                     {#if extended}
@@ -509,6 +575,50 @@
               </div>
             {/if}
           </div>
+
+          {#if extended}
+            <div class="glass-panel p-4 bg-white/5 space-y-3">
+              <button onclick={toggleHidden} disabled={isProcessing} class="w-full flex items-center justify-between text-sm font-bold">
+                <span>🗂 Merged &amp; replaced memories{(data?.needsReview ?? 0) > 0 ? ` · ${data?.needsReview} to review` : ''}</span>
+                <span class="text-gray-400">{showHidden ? '▾' : '▸'}</span>
+              </button>
+              {#if showHidden}
+                <p class="text-xs text-gray-400">
+                  When the local model decides two memories say the same thing, or that a newer fact replaces an
+                  older one, the older memory is hidden from recall, never deleted. If it got that wrong, restore it;
+                  if it was right, keep it hidden.
+                </p>
+                {#each hidden ?? [] as m (m.id)}
+                  <div class="p-3 rounded-lg bg-white/5 flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                      <span class="text-xs px-2 py-1 rounded bg-white/5 text-gray-300">
+                        {m.hidden_reason === 'merged' ? '🔀 merged into a duplicate' : '⏭ replaced by a newer fact'}
+                      </span>
+                      {#if m.judged_by}
+                        <span class="text-xs text-gray-500 ml-1">{judgeLabel[m.judged_by] ?? m.judged_by}</span>
+                      {/if}
+                      <p class="text-sm mt-2 whitespace-pre-wrap text-gray-300">{m.content}</p>
+                      {#if m.created_at}<p class="text-xs text-gray-500 mt-1">{new Date(m.created_at).toLocaleString()}</p>{/if}
+                    </div>
+                    <div class="shrink-0 flex flex-col items-end gap-2">
+                      <button onclick={() => restoreMemory(m)} disabled={isProcessing}
+                        class="px-3 py-1 text-xs rounded-lg bg-cosmic-blue/30 hover:bg-cosmic-blue/60">↩ Restore</button>
+                      {#if m.reviewed}
+                        <span class="text-xs text-gray-500" title="You checked this ruling and kept it">✓ checked</span>
+                      {:else}
+                        <button onclick={() => keepRuling(m)} disabled={isProcessing}
+                          class="px-3 py-1 text-xs rounded-lg bg-white/10 hover:bg-white/20"
+                          title="The model was right: keep it hidden">✓ Keep</button>
+                      {/if}
+                    </div>
+                  </div>
+                {/each}
+                {#if hidden && hidden.length === 0}
+                  <p class="text-xs text-gray-400">Nothing merged or replaced yet.</p>
+                {/if}
+              {/if}
+            </div>
+          {/if}
         </div>
 
       {:else if activeTab === 'documents'}
@@ -729,7 +839,8 @@
                   <div class="flex justify-between"><span>Embedding model</span><span class="text-cosmic-cyan">{data.embeddingModel} · {data.vectorDimensions}d</span></div>
                   <div class="flex justify-between"><span>Learning model</span><span class="text-cosmic-cyan">{data.llmModel ?? 'off'}</span></div>
                   <div class="flex justify-between"><span>Waiting for embedding</span><span>{data.pendingEmbeddings ?? 0}</span></div>
-                  <div class="flex justify-between"><span>Superseded memories</span><span>{data.superseded ?? 0}</span></div>
+                  <div class="flex justify-between"><span>Merged or superseded memories</span><span>{data.superseded ?? 0}</span></div>
+                  <div class="flex justify-between"><span>Awaiting your review</span><span>{data.needsReview ?? 0}</span></div>
                   <div class="flex justify-between"><span>Memory links</span><span>{data.links ?? 0}</span></div>
                   <div class="flex justify-between"><span>Searches (24h)</span><span>{data.searches24h ?? 0}{#if data.avgSearchMs != null} · avg {data.avgSearchMs} ms{/if}</span></div>
                   <div class="flex justify-between"><span>Last optimization</span><span class="text-gray-400">{ago(data.lastMaintenance)}</span></div>

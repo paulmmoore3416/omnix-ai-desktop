@@ -1,10 +1,23 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 
-const state = vi.hoisted(() => ({ configured: false }));
+const state = vi.hoisted(() => ({ configured: false, restored: false, calls: [] as Array<[string, unknown]> }));
 
 vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(async (cmd: string) => {
+  invoke: vi.fn(async (cmd: string, args?: unknown) => {
+    state.calls.push([cmd, args]);
+    if (cmd === 'list_hidden_memories') {
+      return state.restored
+        ? []
+        : [
+            { id: 'm_vim', content: "Paul's favourite editor is Vim", superseded_by: 'm_2', hidden_reason: 'superseded', reviewed: true, created_at: '2026-09-21T10:00:00Z' },
+            { id: 'm_old', content: 'Paul likes meetings in the morning', superseded_by: 'm_1', hidden_reason: 'merged', reviewed: false, created_at: '2026-09-20T10:00:00Z' }
+          ];
+    }
+    if (cmd === 'update_memory') {
+      state.restored = true;
+      return {};
+    }
     if (cmd === 'get_knowledge_data') {
       if (!state.configured) {
         return {
@@ -28,6 +41,7 @@ vi.mock('@tauri-apps/api/core', () => ({
         totalMemories: 1,
         totalDocuments: 1,
         totalChunks: 4,
+        needsReview: state.restored ? 0 : 1,
         totalKnowledgeBases: 0,
         storageUsed: 2048,
         vectorDimensions: 768,
@@ -67,6 +81,8 @@ import KnowledgeView from './KnowledgeView.svelte';
 afterEach(() => {
   cleanup();
   state.configured = false;
+  state.restored = false;
+  state.calls = [];
 });
 
 describe('KnowledgeView', () => {
@@ -87,5 +103,30 @@ describe('KnowledgeView', () => {
     expect(screen.getByRole('button', { name: /Export/ })).toBeEnabled();
     expect(screen.getByRole('button', { name: /Optimize/ })).toBeEnabled();
     expect(screen.queryByText(/Long-term memory is disabled/)).not.toBeInTheDocument();
+  });
+
+  it('flags model rulings to review and keeps one', async () => {
+    state.configured = true;
+    render(KnowledgeView);
+    await fireEvent.click(await screen.findByRole('button', { name: /1 memory change by the local model to review/ }));
+    // Unchecked rulings are listed first, with Keep; checked ones show as checked.
+    const [restoreFirst] = await screen.findAllByRole('button', { name: /Restore/ });
+    expect(restoreFirst.closest('div.p-3')).toHaveTextContent('Paul likes meetings in the morning');
+    expect(screen.getByText('✓ checked')).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: /Keep/ }));
+    expect(state.calls).toContainEqual(['update_memory', { id: 'm_old', patch: { reviewed: true } }]);
+  });
+
+  it('lists merged and replaced memories and restores one', async () => {
+    state.configured = true;
+    render(KnowledgeView);
+    await fireEvent.click(await screen.findByRole('button', { name: /Merged & replaced memories/ }));
+    expect(await screen.findByText('Paul likes meetings in the morning')).toBeInTheDocument();
+    expect(screen.getByText(/merged into a duplicate/)).toBeInTheDocument();
+    expect(screen.getByText(/replaced by a newer fact/)).toBeInTheDocument();
+    const [first] = screen.getAllByRole('button', { name: /Restore/ });
+    await fireEvent.click(first);
+    expect(await screen.findByText(/Nothing merged or replaced yet/)).toBeInTheDocument();
+    expect(state.calls).toContainEqual(['update_memory', { id: 'm_old', patch: { superseded_by: null } }]);
   });
 });

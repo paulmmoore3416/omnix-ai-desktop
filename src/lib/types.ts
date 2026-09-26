@@ -197,6 +197,8 @@ export interface KnowledgeData {
   embedError?: string | null;
   pendingEmbeddings?: number;
   superseded?: number;
+  /** Merged/superseded memories whose model ruling the user hasn't checked. */
+  needsReview?: number;
   links?: number;
   categories?: Record<string, number>;
   sources?: Record<string, number>;
@@ -490,6 +492,15 @@ export type UiEvent =
   | { type: 'token'; text: string }
   | { type: 'tool_call'; id: string; name: string; arguments: unknown }
   | { type: 'tool_result'; id: string; name: string; ok: boolean; summary: string }
+  | { type: 'recalled'; memories: RecalledMemory[] }
   | { type: 'notice'; message: string }
   | { type: 'error'; message: string }
   | { type: 'done' };
+
+/** Mirrors `ai::agent::RecalledMemory`: one auto-recalled memory under a reply. */
+export interface RecalledMemory {
+  id: string;
+  /** Plain text (untrusted): render as text, never as HTML. */
+  preview: string;
+  origin: string | null;
+}

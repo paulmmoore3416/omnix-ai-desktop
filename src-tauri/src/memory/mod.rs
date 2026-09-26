@@ -51,6 +51,9 @@ pub struct MemoryRecord {
     /// Times recalled by search (kb-core extension).
     #[serde(default)]
     pub access_count: u32,
+    /// Times the user flagged it as wrong when recalled (kb-core extension).
+    #[serde(default)]
+    pub rejected: u32,
     /// 0–1 liveliness from importance, recency and use (kb-core extension).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub activation: Option<f32>,
@@ -107,6 +110,11 @@ pub struct SearchHit {
     /// Knowledge base (kb-core collection).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collection: Option<String>,
+    /// Provenance (kb-core extension): `user`, `extract`, `assistant`,
+    /// `import` for memories, `document` for note chunks. Drives the trust
+    /// label in the recall block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
 }
 
 /// Result of [`MemoryStore::index_document`].
@@ -182,9 +190,19 @@ pub trait MemoryStore: Send + Sync {
     async fn delete_document(&self, _id: &str) -> AppResult<()> {
         Err(AppError::NotImplemented("document deletion"))
     }
+    /// Merged and superseded memories (hidden from recall, restorable),
+    /// newest first.
+    async fn list_hidden(&self, _limit: u32) -> AppResult<Vec<Value>> {
+        Err(AppError::NotImplemented("memory history"))
+    }
     /// Edit, pin or restore a memory.
     async fn update_memory(&self, _id: &str, _patch: Value) -> AppResult<Value> {
         Err(AppError::NotImplemented("memory editing"))
+    }
+    /// Recall feedback: `helpful = false` when a recalled memory was wrong or
+    /// beside the point (ranks it lower from then on), `true` when it helped.
+    async fn feedback(&self, _id: &str, _helpful: bool) -> AppResult<Value> {
+        Err(AppError::NotImplemented("recall feedback"))
     }
     /// Extract durable facts from the user's text and store them.
     async fn extract(&self, _text: &str) -> AppResult<Vec<Value>> {

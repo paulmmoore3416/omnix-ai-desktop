@@ -111,6 +111,11 @@ if [[ -n "$KB" ]]; then
     if st=$(curl -fs --max-time 5 "${KB_AUTH[@]}" "$KB/stats" 2>/dev/null); then
       llm=$(jq -r '.llm_model // empty' <<<"$st")
       [[ -n "$llm" ]] && pass "kb-core learning model $llm" || warn "kb-core has no chat model: fact capture and contradiction checks are off"
+      nli=$(jq -r '.nli_model // empty' <<<"$st")
+      [[ -n "$nli" ]] && pass "kb-core NLI judge $nli (merges need $(jq -r '.judge' <<<"$st"))"
+      [[ "$(jq -r '.encrypted // false' <<<"$st")" == true ]] && pass "kb-core database encrypted at rest (SQLCipher)"
+      nrev=$(jq -r '.needs_review // 0' <<<"$st")
+      [[ "$nrev" =~ ^[0-9]+$ ]] && ((nrev > 0)) && echo "  info  kb-core: $nrev merged/replaced memories to review (Knowledge view)"
       jq -r '(.watch.errors // {}) | to_entries[] | "\(.key): \(.value)"' <<<"$st" | while read -r e; do echo "${y}  WARN${o}  kb-core watch folder $e"; done
     fi
   else fail "kb-core not reachable at $KB (systemctl --user status omnix-kb-core; journalctl --user -u omnix-kb-core -n 50)"; fi

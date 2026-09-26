@@ -72,6 +72,13 @@ class Config:
     vector_dtype: str = "float32"
     # Also index source code and config files in watched folders.
     index_code: bool = True
+    # Folder with an ONNX NLI cross-encoder (second duplicate/contradiction
+    # judge next to the LLM). None = off.
+    nli_model: Path | None = None
+    # SQLCipher key (64 hex chars) when the database is encrypted at rest.
+    # Never read from the environment: KB_CORE_ENCRYPTION=keyring makes
+    # from_env fetch it from the OS keyring (see crypto.py).
+    db_key: str | None = field(default=None, repr=False)
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -80,6 +87,15 @@ class Config:
         if token_file:
             token = Path(token_file).expanduser().read_text(encoding="utf-8").strip() or None
         watch = tuple(parse_watch(os.environ.get("KB_CORE_WATCH", "")))
+        nli = os.environ.get("KB_CORE_NLI_MODEL", "").strip()
+        enc = os.environ.get("KB_CORE_ENCRYPTION", "").strip().lower()
+        db_key = None
+        if enc == "keyring":
+            from .crypto import load_key
+
+            db_key = load_key()
+        elif enc not in {"", "off", "none"}:
+            raise SystemExit(f"KB_CORE_ENCRYPTION must be 'keyring' or empty, not {enc!r}")
         hosts = frozenset(
             h.strip().lower() for h in os.environ.get("KB_CORE_ALLOWED_HOSTS", "").split(",") if h.strip()
         )
@@ -100,6 +116,8 @@ class Config:
             half_life_days=max(1.0, _float("KB_CORE_HALF_LIFE_DAYS", cls.half_life_days)),
             vector_dtype=_env("KB_CORE_VECTOR_DTYPE", cls.vector_dtype),
             index_code=_env("KB_CORE_INDEX_CODE", "1").lower() not in {"0", "false", "no", "off"},
+            nli_model=Path(nli).expanduser() if nli else None,
+            db_key=db_key,
         )
 
     def is_loopback(self) -> bool:

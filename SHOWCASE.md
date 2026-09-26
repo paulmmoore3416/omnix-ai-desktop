@@ -76,7 +76,7 @@ Everything below describes what is implemented and tested in this repository.
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the module map and
 sequence diagrams, [`docs/TECHNICAL_REFERENCE.md`](docs/TECHNICAL_REFERENCE.md)
 for every command, setting and algorithm, and [`docs/SECURITY.md`](docs/SECURITY.md)
-for the threat model. The story behind it: [`docs/articles/medium-omnix-kb-core.md`](docs/articles/medium-omnix-kb-core.md).
+for the threat model.
 
 ## Engineering decisions worth discussing
 
@@ -99,14 +99,14 @@ for the threat model. The story behind it: [`docs/articles/medium-omnix-kb-core.
 
 ## Test & quality snapshot
 
-- Rust: 144 unit tests, including policy bypass attempts, audit-chain
+- Rust: 148 unit tests, including policy bypass attempts, audit-chain
   tampering, secret migration, stream parsers (Ollama/Anthropic/OpenAI), an
   MCP stdio end-to-end test, executor timeouts/env clearing and memory
   recall-block escaping, HMAC approvals and settings validation. Plus opt-in
   live tests (Ollama, host probes).
-- Frontend: 27 Vitest tests (API/error helpers, write-only secret field,
+- Frontend: 29 Vitest tests (API/error helpers, write-only secret field,
   disabled-state UI, Knowledge view, markdown sanitizer, voice helpers, WAV encoder).
-- kb-core: 46 offline tests (consolidation, supersession, outage/backfill,
+- kb-core: 61 offline tests (consolidation, supersession, outage/backfill,
   model change, personalisation, incremental re-index, HTTP guards), run in
   CI with and without numpy.
 - `cargo clippy -D warnings`, `svelte-check` with 0 errors and 0 warnings,
@@ -140,7 +140,6 @@ for the threat model. The story behind it: [`docs/articles/medium-omnix-kb-core.
 
 - AIORC gRPC routing backend (scaffolded; awaiting its `.proto`)
 - Signed releases and auto-update
-- Memory encryption at rest
 - Multi-host view (several OMNIX servers in one System Control)
 
 ## Links

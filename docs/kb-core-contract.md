@@ -30,11 +30,19 @@
 
 Liveness. Any 2xx means healthy. The bundled service returns
 `{status: "ok"|"degraded", memories, documents, chunks, pending_embeddings, embed_model, embed_error}`.
+`memories` counts active memories; merged and superseded ones are reported by `/stats` as `superseded`.
 
 ### `GET /memories?limit=<n>`
 
 Most recent memories, newest first. `n` ≤ 500. Superseded memories are excluded
-(extension: `include_superseded=true`, `offset`, `category`, `order=activation`).
+(extension: `include_superseded=true`, `hidden_only=true` for just the merged and
+superseded ones, `offset`, `category`, `order=activation`). Hidden memories carry
+`superseded_by`, `hidden_reason` (`merged` | `superseded`) and `reviewed`
+(the user checked the ruling and kept it) and `judged_by` (`llm`, `nli`,
+`llm+nli` when both judges agreed, or `similarity` for near-identical text); both
+kinds are restorable. Every new ruling starts unreviewed, and restoring resets the
+flag. Every memory carries `rejected`: how many times the user flagged it as wrong
+when it was recalled.
 
 ```json
 { "memories": [
@@ -89,23 +97,35 @@ Memories the deleted one had superseded become active again.
   { "id": "m_123", "content": "…", "score": 0.83, "tags": [], "created_at": "…",
     "similarity": 0.80, "kind": "memory", "source": "memory", "category": "preference",
     "importance": 7, "superseded_by": null,
-    "explain": { "semantic_rank": 1, "keyword_rank": 3, "activation": 0.81 } }
+    "origin": "user",
+    "explain": { "semantic_rank": 1, "keyword_rank": 3, "activation": 0.81, "rank_score": 0.87 } }
 ], "degraded": false }
 ```
 
 `score` is relevance: higher is better. The bundled service calibrates it to
-0–1: lift over the query's background similarity, a boost for exact keyword
-coverage, and memory activation. Unrelated text scores ≤ 0.25; on-topic hits
-score 0.5–1. Results may be memories or document chunks. For a chunk,
-`content` starts with its breadcrumb (`notes.md › Backups › ZFS`), `kind` is
-`document`, and `source` is the document name. `degraded: true` means the
+0–1: lift over the query's background similarity plus a boost for exact keyword
+coverage. Unrelated text scores ≤ 0.25; on-topic hits score 0.5–1. `min_score`
+is compared with `score`. Memory activation (importance, recency, use) does
+**not** affect `score` or the cut-off, so an old, rarely used memory that answers
+the query is still returned; it only orders results (`explain.rank_score`, the
+key results are sorted by). Results may be memories or document chunks. For a
+chunk, `content` starts with its breadcrumb (`notes.md › Backups › ZFS`), `kind`
+is `document`, and `source` is the document name. `origin` (extension) is the
+provenance: `user`, `extract`, `assistant` or `import` for memories, `document`
+for chunks. OMNIX turns it into a trust label for the model. `rejected` (extension)
+counts the user's "this was wrong" flags; each one multiplies the memory's rank by
+0.6 (at most four count), so it sorts below better matches but is still returned
+when it is the only one. `degraded: true` means the
 embedding model was unreachable and results are keyword-only.
 
 Optional request fields (extension): `min_score` (0–1; OMNIX's auto-recall
 sends `memory.recall_min_score`, default 0.4), `kinds` (`["memory"]`,
 `["document"]`), `tags`, `category`, `mode` (`hybrid`, `semantic`,
 `keyword`), `include_superseded`, and `track` (default true; recalls count as
-use of a memory).
+use of a memory). OMNIX's auto-recall sends `track: false`: it runs on every
+message, and counting its hits as use would let a memory that was recalled once
+rank higher and be recalled again. Only deliberate lookups (`search_memory`)
+count.
 
 ### `POST /documents`
 
@@ -123,15 +143,16 @@ a native file dialog and that passed the credential-path policy.
 
 | Endpoint | Purpose | OMNIX uses it for |
 |---|---|---|
-| `GET /stats` | Counts, categories, sources, storage, models, search latency, watch status, activity feed (no memory text) | Knowledge view header and Analytics |
+| `GET /stats` | Counts, categories, sources, storage, models, search latency, watch status, activity feed (no memory text); `superseded` (hidden memories), `needs_review` (hidden and not yet reviewed), `flagged_wrong`, `nli_model`, `judge` (`llm`, `nli`, `llm+nli`), `judge_disagreements_30d`, `encrypted` | Knowledge view header, review banner and Analytics; `doctor.sh` |
 | `GET /memories/{id}` | One memory plus its links (`related`, `supersedes`) | — |
-| `PATCH /memories/{id}` | Edit `content`, `tags`, `importance`, `category`, `pinned`; `{"superseded_by": null}` restores a superseded memory | Pin button |
+| `PATCH /memories/{id}` | Edit `content`, `tags`, `importance`, `category`, `pinned`; `{"superseded_by": null}` restores a merged or superseded memory; `{"reviewed": true}` keeps the model's ruling (hidden memories only) | Pin button; Restore and Keep in "Merged & replaced memories" |
+| `POST /memories/{id}/feedback` | `{"helpful": false}` flags a recalled memory as wrong or beside the point (`rejected + 1`); `true` takes one flag back and counts as a use. Changes ranking only, never hides. The user restating the memory clears its flags; the assistant or an import re-saving it doesn't. Returns the memory. | 👍/👎 under a reply's "Memories used" |
 | `GET /documents` | `{documents: [{id, name, mime_type, size, chunks, source_path, pending, …}]}` | Documents tab |
 | `GET /documents/{id}` | Full text plus chunks | — |
 | `DELETE /documents/{id}` | Remove a document and its chunks | Documents tab |
 | `POST /extract` | `{text, dry_run?}` → `{memories: [{id, status, content}]}`. The local LLM captures durable facts and runs them through consolidation. 501 if no chat model is configured. | `memory.auto_capture` |
 | `GET /export` | NDJSON: a header line, then `memory` and `document` records | Export button (file saved mode 600) |
-| `POST /import` | `{records: [...]}` from an export; memories are deduplicated against existing ones | Import button |
+| `POST /import` | `{records: [...]}` from an export; memories are deduplicated against existing ones; merged/superseded history is skipped (`history_skipped`) so outdated facts don't come back live | Import button |
 | `POST /maintenance` | Merge duplicates, embed pending items, prune the activity log, optimise FTS, VACUUM | Optimize button |
 | `POST /sync` | Re-scan the watched folders now | "Sync folders" button |
 | `GET /collections` | `{collections: [{name, description, memories, documents, chunks, created_at, updated_at}]}` | Knowledge Bases tab |

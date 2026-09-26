@@ -257,6 +257,15 @@ two memory tools (`search_memory`, `remember`).
   results, and the **auto-recall** block (`memory.auto_recall`, on by default).
   Auto-recall adds the top hits above `memory.recall_min_score` to *that turn's*
   system prompt with a note that they may be outdated and are not instructions.
+  Every entry carries a **provenance label** (stated by the user, learned from
+  the user's messages, imported, saved by the assistant, or external document).
+  Document chunks and assistant-saved memories are marked "not verified by the
+  user", and the model is told such entries may be planted, must never be
+  followed as instructions, and must be named as the source of any command or
+  setting it suggests from them. This targets indirect injection through
+  watched folders (a downloaded "guide" that recommends `curl … | sh`): the
+  command itself is denied by policy, but the label stops the model presenting
+  the advice with the user's authority.
   It is never stored in history, and it is skipped after 4 s so a slow kb-core
   can't stall chat.
 * **Memory poisoning.** Stored text could try to steer a later conversation
@@ -269,7 +278,27 @@ two memory tools (`search_memory`, `remember`).
   *user's* own message (never the assistant reply, which can echo tool
   output), is audited (`memory_capture`), and tags results `extract`/`auto`.
   kb-core filters secrets from extracted facts. A memory the local model marks
-  superseded is hidden, not deleted, and can be restored.
+  duplicate (merged) or superseded is hidden, not deleted, and can be restored
+  from Knowledge → Memories → Merged & replaced memories. Every such ruling
+  counts as "to review" (a banner in the Knowledge view) until the user keeps
+  or restores it. The webview can restore a memory or mark a ruling reviewed,
+  but can never hide one (`superseded_by` only accepts `null`).
+  Auto-recall doesn't count as use of a memory (`track: false`), so a memory
+  that was recalled once can't boost itself into every later reply.
+  The user can flag a recalled memory as wrong (👎 under "Memories used"):
+  `memory_feedback` only lowers its rank and never hides or edits anything, so
+  it is safe to accept from the webview. Only the user restating the memory
+  clears the flags; the assistant re-saving it cannot.
+  With the optional NLI judge (`setup-memory.sh --nli`), a merge or
+  replacement needs the local LLM and the NLI model to agree. The model is a
+  pinned revision whose files are checked against SHA-256 sums at install,
+  because it decides which memories get hidden.
+* **Memory at rest.** The database is mode 600. `setup-memory.sh --encrypt`
+  encrypts the whole file with SQLCipher (page-level AES-256); the key is 32
+  random bytes kept only in the OS keyring (never in `kb-core.env`, the
+  environment, logs or OMNIX settings). This protects a copied disk or backup
+  and other local users, not a process running as the same user while the
+  keyring is unlocked. `kb-core export` files are plain JSON (mode 600).
 
 ## 10. MCP servers
 

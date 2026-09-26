@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Memory hardening (external design review)
+
+**Changed**
+- **Merges are soft.** When the LLM judge (or `/maintenance`) rules two memories duplicates, the older one is now
+  hidden with a `merged` link instead of deleted, exactly like a superseded memory. `PATCH {"superseded_by": null}`
+  or deleting the surviving memory restores it unchanged. Previously a wrong ruling by a small local model lost the
+  memory permanently.
+- **Decay no longer filters.** `min_score` and `score` use calibrated relevance only; activation (importance,
+  recency, use) orders results (`explain.rank_score`) but can't push an old, rarely used memory that answers the
+  query below the cut-off.
+- `/health` and the knowledge-base list count active memories only (hidden ones are in `/stats` → `superseded`).
+- **Auto-recall no longer counts as use** (`track: false`). It runs on every message, so counting its hits let a
+  memory recalled once rank higher and be recalled again. Deliberate lookups, restating and pinning still count.
+
+**Added**
+- **Provenance labels in recall.** Search hits carry `origin` (`user`, `extract`, `assistant`, `import`,
+  `document`). The recall block and `search_memory` label each entry ("memory stated by the user", "external document
+  <name>, not verified by the user", …), and the model is told unverified entries may be planted and must be cited
+  when it suggests a command or setting from them.
+- Knowledge → Memories → **Merged & replaced memories**: lists hidden memories with why they were hidden, with a
+  **Restore** button (`list_hidden_memories`, `GET /memories?hidden_only=true`).
+- **Review of model rulings.** Every merge or supersession counts as "to review" until the user restores it or
+  presses **Keep** (`PATCH {"reviewed": true}`). A banner in the Knowledge view shows the count, unchecked rulings
+  are listed first, and Analytics shows *Awaiting your review*. kb-core schema v3 (`items.reviewed`, migrated
+  automatically); `/stats` → `needs_review`.
+- `clean_memory_patch`: the IPC whitelist for memory edits is a tested function; the webview can restore a memory or
+  mark a ruling reviewed but never hide one.
+
+- **Second judge for consolidation (optional).** `setup-memory.sh --nli` installs a small NLI cross-encoder
+  (`nli-deberta-v3-xsmall`, ONNX int8, CPU, ~40 ms per pair; pinned revision, SHA-256-checked). It rules
+  duplicates (entailment ≥ 0.9, no contradiction either way) and replacements (contradiction ≥ 0.8 in *both*
+  directions). With the LLM judge also on, a merge or replacement needs both to agree; disagreements keep both
+  memories live and are counted (`/stats` → `judge_disagreements_30d`). Hidden memories show who decided
+  (`judged_by`). kb-core schema v4 (`items.rejected`, `items.judge`, migrated automatically).
+- **Recall feedback.** Replies list the memories auto-recall used (**🧠 Memories used**, new `recalled` chat event)
+  with 👍/👎. 👎 (`memory_feedback` → `POST /memories/{id}/feedback`) multiplies the memory's rank by 0.6 per flag,
+  so a heavily used but wrong memory stops winning; it is never hidden and still answers when it is the only match.
+  Only the user restating the fact clears the flags. The Knowledge view shows 👎 *n*; `/stats` → `flagged_wrong`.
+- **Encryption at rest (opt-in).** `setup-memory.sh --encrypt` / `kb-core encrypt` convert the database to SQLCipher
+  (whole file, so FTS5 keeps working) with a random 256-bit key kept only in the OS keyring; `kb-core decrypt`
+  reverses it. Conversion is integrity-checked and atomic. `doctor.sh` reports the judges, encryption and the
+  review backlog.
+
+**Fixed**
+- Import no longer brings merged or superseded history back as live memories (`history_skipped` in the result).
+
 ### System Control, automation and host control
 
 **Added**
@@ -54,7 +100,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   command, the chat event protocol, agent tools, memory integration, full settings reference with defaults, error
   kinds, audit-log schema, kb-core internals (schema, retrieval and scoring formulas, activation, consolidation,
   extraction, folder sync, HTTP guards), extension guide, test suites and measured performance.
-- `docs/articles/medium-omnix-kb-core.md`: a Medium article on OMNIX and kb-core, with publishing notes.
 - User Guide §11–13: the Knowledge view tab by tab, getting the most out of memory, and a privacy FAQ.
 - Project Overview: kb-core capabilities (§3.12) and "What makes OMNIX different" (§5).
 
