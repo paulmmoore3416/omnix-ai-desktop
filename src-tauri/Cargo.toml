@@ -1,6 +1,6 @@
 [package]
 name = "omnix"
-version = "1.0.0"
+version = "1.1.0"
 description = "OMNIX - local-first AI desktop assistant"
 authors = ["Paul Moore <paulmmoore3416@gmail.com>"]
 edition = "2021"
