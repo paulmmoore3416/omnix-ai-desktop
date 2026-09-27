@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `deploy/docker-compose.yml` with Ollama, a one-shot model puller, Speaches and kb-core, plus an NVIDIA override
   and `deploy/init.sh` for the token and `.env`. Ports bind to 127.0.0.1 unless `OMNIX_BIND` is changed.
 - **Landing page** (`site/`, static, no external requests) and launch post drafts (`docs/marketing/`).
+- **List prices** from 2026 market research (`docs/PRICING.md`: LM Studio, Jan, AnythingLLM, TypingMind, BoltAI,
+  Msty, Raycast, Open WebUI, Tabnine). Lifetime Pro is $99 ($79 launch offer), BYOK is $10/month or $96/year, and
+  Enterprise Hardened is from $4,800/year for 20 seats plus $20/seat/month, with a hardening package from $2,500.
 - **Workspace notepad.** A resizable Markdown notepad under every Workspace tab: several notes, write / split /
   preview views (headings, tables, quotes, code, ☐/☑ task lists; sanitized like chat), a formatting toolbar,
   Ctrl+B/I and Ctrl+Enter to tick tasks, 🧹 Tidy (side task), copy, pin, and send to chat. **📝 Note** on replies,

@@ -32,4 +32,5 @@ v1.1.0 is live today.
 ## Landing page
 
 A static page is in [`site/`](../../site/index.html): self-contained, no external requests, screenshots in
-`site/img/`. Set the final prices in the Pricing section before publishing.
+`site/img/`. It shows the list prices from [PRICING.md](../PRICING.md): Pro $99 ($79 launch offer), BYOK $10/mo or
+$96/yr, and Enterprise from $4,800/yr.
