@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-27
+
 ### Added
 - **Usage and ROI (Settings → Usage).** A local, content-free daily ledger (`usage.json`, mode 600) of turns,
   local vs cloud turns, prompt and output tokens, tool calls, recalled memories, time spent and turns per model,
