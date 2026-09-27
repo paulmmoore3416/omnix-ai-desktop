@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy, untrack } from 'svelte';
   import { call, errorMessage } from '$lib/api';
-  import type { GoogleStatus, Settings, VerifyReport } from '$lib/types';
+  import type { GoogleStatus, KnowledgeData, Settings, VerifyReport } from '$lib/types';
   import { startRecording, transcribe } from '$lib/voice';
   import SecretField from './SecretField.svelte';
   import McpServers from './McpServers.svelte';
@@ -157,6 +157,24 @@
 
   $effect(() => {
     if (activeTab === 'google') untrack(refreshGoogle);
+  });
+
+  // Memory encryption is set up by `setup-memory.sh --encrypt`, not here; the
+  // Security tab only reports what kb-core says. undefined = not checked yet,
+  // null = unknown (no memory service, or it doesn't report encryption).
+  let memoryEncrypted = $state<boolean | null | undefined>(undefined);
+
+  async function refreshMemoryEncryption() {
+    try {
+      const data = await call<KnowledgeData>('get_knowledge_data');
+      memoryEncrypted = data.available ? (data.encrypted ?? null) : null;
+    } catch {
+      memoryEncrypted = null;
+    }
+  }
+
+  $effect(() => {
+    if (activeTab === 'security') untrack(refreshMemoryEncryption);
   });
 
   // Opens Google's consent page in the browser; uses the *saved* settings.
@@ -780,9 +798,17 @@
                 <span class="text-sm font-medium">Audit log (hash-chained)</span>
                 <span class="text-xs text-green-400">Always on</span>
               </div>
-              <div class="flex items-center justify-between opacity-60">
-                <span class="text-sm font-medium">Encrypt memory storage</span>
-                <span class="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-1 rounded">Planned</span>
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Memory encrypted at rest <span class="block text-xs text-gray-400 font-normal">Turn on with <code>./scripts/setup-memory.sh --encrypt</code> (needs an unlocked keyring)</span></span>
+                {#if memoryEncrypted === true}
+                  <span class="text-xs text-green-400">On (SQLCipher)</span>
+                {:else if memoryEncrypted === false}
+                  <span class="text-xs text-yellow-300">Off</span>
+                {:else if memoryEncrypted === null}
+                  <span class="text-xs text-gray-400">Unknown</span>
+                {:else}
+                  <span class="text-xs text-gray-400">Checking…</span>
+                {/if}
               </div>
               <div>
                 <label for="blocked" class="block text-sm font-medium mb-2">Blocked command prefixes (one per line)</label>

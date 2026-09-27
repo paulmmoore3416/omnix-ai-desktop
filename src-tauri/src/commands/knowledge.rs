@@ -2,7 +2,6 @@
 //! when `memory.backend_url` is set. Extension features (analytics, document
 //! management, export/import, optimization, folder sync) work against the
 //! bundled kb-core and report `not_implemented` against a minimal service.
-//! Separate named knowledge bases are not implemented.
 
 use crate::error::{AppError, AppResult};
 use crate::memory::{self, NewMemory};
@@ -82,6 +81,9 @@ pub async fn get_knowledge_data(state: State<'_, AppState>) -> AppResult<Value> 
         "llmModel": s.get("llm_model").cloned().unwrap_or(Value::Null),
         "status": s.get("status").cloned().unwrap_or(json!("ok")),
         "embedError": s.get("embed_error").cloned().unwrap_or(Value::Null),
+        // Whether kb-core's database is encrypted at rest (SQLCipher); null when
+        // the service doesn't report it.
+        "encrypted": s.get("encrypted").cloned().unwrap_or(Value::Null),
         "pendingEmbeddings": num("pending_embeddings"),
         "superseded": num("superseded"),
         "needsReview": num("needs_review"),

@@ -99,6 +99,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Redaction test fixtures** in `audit.rs` are assembled at runtime, so secret scanners stop flagging them as
   leaked GitHub/AWS/OpenAI keys. They were never real credentials.
 - Agent metrics now record prompt tokens and whether a local model answered (feeds the usage ledger).
+- **Settings → Security shows whether memory is encrypted at rest** (from kb-core's `/stats`, new `encrypted` field
+  in `get_knowledge_data`) instead of a stale *Planned* badge; encryption is turned on with
+  `./scripts/setup-memory.sh --encrypt`. `USER_GUIDE.md` now documents knowledge bases (they were still described as
+  planned) and `SECURITY.md` points to the Loki shipping that already exists.
 - **Smoother live metrics.** The Live tab reads cheap host and GPU stats every 1.5 s (the full snapshot every
   10 s), plots the last 2 minutes as monotone curves placed by time that glide continuously, tweens the numbers and
   eases the bars. All sparklines now draw smooth curves that never overshoot the data.
