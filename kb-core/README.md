@@ -111,6 +111,7 @@ claude mcp add kb-core -- kb-core mcp --all --exclude clinical,conversations --a
 | `KB_CORE_INDEX_CODE` | `1` | Also index source and config files in watched folders (`0` = notes and PDFs only). |
 | `KB_CORE_VECTOR_DTYPE` | `float32` | `float16` halves the vector index's RAM for very large stores. |
 | `KB_CORE_WATCH_INTERVAL` | `120` | Seconds between scans (min 10). |
+| `KB_CORE_CONNECTOR_PLUGINS` | empty | Comma-separated third-party [connectors](../docs/CONNECTORS.md) to load (entry-point group `kb_core.connectors`). Obsidian vaults and plain folders need nothing. |
 | `KB_CORE_TOKEN_FILE` | empty | File holding a bearer token; when set, every request needs it. |
 | `KB_CORE_ALLOWED_HOSTS` | empty | Extra `Host` names accepted when no token is set. |
 | `KB_CORE_DUPLICATE_THRESHOLD` / `KB_CORE_RELATED_THRESHOLD` | `0.985` / `0.75` | Cosine cut-offs for auto-merge and linking. |
@@ -118,6 +119,9 @@ claude mcp add kb-core -- kb-core mcp --all --exclude clinical,conversations --a
 | `KB_CORE_LOG` | `INFO` | Log level. Logs never contain memory text. |
 
 After editing: `systemctl --user restart omnix-kb-core`.
+
+**Docker:** `kb-core/Dockerfile` builds a non-root image (uid 10001, data in `/data`, bearer token required).
+`deploy/docker-compose.yml` runs it next to Ollama and Speaches. See `docs/SERVER_DEPLOYMENT.md`, layout C.
 
 ## API
 

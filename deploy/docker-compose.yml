@@ -1,0 +1,78 @@
+# OMNIX services for a home server: Ollama (models), Speaches (speech-to-text)
+# and kb-core (memory). The OMNIX desktop app runs on your workstation and
+# points at this machine (Settings → AI Models / Voice / Memory).
+#
+#   cd deploy && ./init.sh            # once: token secret + .env
+#   docker compose up -d              # CPU
+#   docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d   # NVIDIA GPU
+#
+# SECURITY: none of these services has user accounts. Ports bind to
+# ${OMNIX_BIND} (127.0.0.1 unless you change it in .env). Set it to a LAN or
+# tailnet address only behind a firewall; never expose these ports to the
+# internet. kb-core additionally requires the bearer token from init.sh.
+name: omnix
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "${OMNIX_BIND:-127.0.0.1}:11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    environment:
+      OLLAMA_KEEP_ALIVE: "${OLLAMA_KEEP_ALIVE:-30m}"
+
+  # One-shot: pull the configured models into the ollama volume, then exit.
+  models:
+    image: ollama/ollama:latest
+    depends_on: [ollama]
+    restart: "no"
+    environment:
+      OLLAMA_HOST: "http://ollama:11434"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        for i in $$(seq 1 60); do ollama list >/dev/null 2>&1 && break; sleep 2; done
+        for m in $${OMNIX_MODELS}; do echo "pulling $$m"; ollama pull "$$m" || exit 1; done
+    # Passed through from .env: space-separated model names.
+    env_file: [.env]
+
+  speaches:
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    restart: unless-stopped
+    ports:
+      - "${OMNIX_BIND:-127.0.0.1}:8000:8000"
+    volumes:
+      - hf-cache:/home/ubuntu/.cache/huggingface/hub
+    environment:
+      STT_MODEL_TTL: "-1"
+
+  kb-core:
+    build: ../kb-core
+    image: omnix-kb-core:local
+    restart: unless-stopped
+    depends_on: [ollama]
+    ports:
+      - "${OMNIX_BIND:-127.0.0.1}:8100:8100"
+    volumes:
+      - kb-data:/data
+      # Optional notes folder (an Obsidian vault is detected automatically).
+      - "${OMNIX_NOTES_DIR:-./notes}:/notes:ro"
+    environment:
+      KB_CORE_OLLAMA: "http://ollama:11434"
+      KB_CORE_EMBED_MODEL: "${KB_CORE_EMBED_MODEL:-nomic-embed-text}"
+      KB_CORE_LLM_MODEL: "${KB_CORE_LLM_MODEL:-}"
+      KB_CORE_USER_NAME: "${KB_CORE_USER_NAME:-}"
+      KB_CORE_WATCH: "notes=/notes"
+    secrets:
+      - kb_core_token
+
+volumes:
+  ollama:
+  hf-cache:
+  kb-data:
+
+secrets:
+  kb_core_token:
+    file: ./secrets/kb_core_token

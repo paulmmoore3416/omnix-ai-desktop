@@ -7,6 +7,8 @@
 //! * [`memory`]: long-term memory (kb-core adapter).
 //! * [`system`]: metrics and process management.
 //! * [`settings`]: persisted configuration (no secrets).
+//! * [`license`]: offline license verification (informational tiers).
+//! * [`usage`]: local, content-free usage ledger.
 //! * [`state`]: [`state::AppState`], managed by Tauri.
 //! * [`error`]: [`error::AppError`], serialized to the frontend as `{kind, message}`.
 
@@ -15,6 +17,7 @@ pub mod commands;
 pub mod desktop;
 pub mod error;
 pub mod google;
+pub mod license;
 pub mod mcp;
 pub mod memory;
 pub mod observability;
@@ -24,6 +27,7 @@ pub mod security;
 pub mod settings;
 pub mod state;
 pub mod system;
+pub mod usage;
 pub mod voice;
 pub mod workbook;
 
@@ -239,6 +243,12 @@ pub fn run() {
             commands::models::model_unload,
             commands::models::model_delete,
             commands::models::model_pull,
+            // License and local usage
+            commands::license::license_status,
+            commands::license::license_install,
+            commands::license::license_remove,
+            commands::usage::usage_summary,
+            commands::usage::usage_clear,
             // Voice
             commands::voice::voice_transcribe,
             commands::voice::voice_speak,

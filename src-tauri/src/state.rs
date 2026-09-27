@@ -59,6 +59,8 @@ pub struct AppState {
     pub google: crate::google::GoogleSession,
     /// Running side tasks (tool-less AI jobs beside the chat).
     pub tasks: crate::ai::tasks::TaskRegistry,
+    /// Persistent, content-free daily usage totals (`usage.json`).
+    pub usage: crate::usage::UsageLedger,
 }
 
 impl AppState {
@@ -69,6 +71,10 @@ impl AppState {
             .app_log_dir()
             .map_err(|e| AppError::Unavailable(format!("app log directory: {e}")))?;
         let audit = AuditLog::open(log_dir.join("audit.jsonl"))?;
+        let data_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| AppError::Unavailable(format!("app data directory: {e}")))?;
         tracing::info!(path = %audit.path().display(), "audit log opened");
 
         let secrets: Arc<dyn SecretStore> = Arc::new(KeyringStore);
@@ -102,6 +108,7 @@ impl AppState {
             phone_watch: crate::phone::DownWatch::default(),
             google: crate::google::GoogleSession::default(),
             tasks: crate::ai::tasks::TaskRegistry::default(),
+            usage: crate::usage::UsageLedger::new(data_dir.join("usage.json")),
         })
     }
 

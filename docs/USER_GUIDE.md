@@ -409,6 +409,11 @@ admin commands, adding a new server) asks you to confirm in a pop-up.
 | **Google** | Connect **Gmail** (search, read, save drafts; OMNIX never sends mail), **Google Drive** (search, read, upload what OMNIX made) and **Google developer docs**. Needs your own Google Cloud OAuth client (the tab lists the steps) and local-only mode off. Off by default; turning it on asks you to confirm |
 | **Security** | Local-only mode, admin commands, autonomous mode, blocked commands, audit-log verification |
 | **Performance** | Performance-related options |
+| **Usage** | What OMNIX did for you: turns, tokens served by local models, tool calls, time spent generating and which models answered, per day, for the last 7 / 30 / 90 / 365 days. **Cloud-equivalent cost avoided** multiplies the local tokens by reference prices you can edit. Only daily counts and model names are kept, on this computer. **Clear usage history** (click twice) deletes them |
+| **License** | Your edition (Community, Lifetime Pro, BYOK or Enterprise Hardened) and who it is licensed to. Paste a license key and click **Install license**; keys are checked on this computer, nothing is sent anywhere. In this version every feature works on every edition |
+
+Usage and License act immediately, so they have no Save button. **❓ Help** in the left sidebar explains how to set up
+local models, voice and memory, and works offline.
 
 **API keys** (for cloud providers) are stored in your operating system's secure keychain, never in a plain file. The
 screen shows only "Key saved ✓", with no way to read the key back out.

@@ -216,6 +216,8 @@ src-tauri/
   src/ops/                   alerts, automations, scheduler (engine, rules, cron, HMAC approvals)
   src/settings.rs            persisted configuration
   src/state.rs               AppState
+  src/license.rs             offline license verification (informational tiers)
+  src/usage.rs               local, content-free daily usage ledger
   capabilities/default.json  least-privilege webview permissions
   tauri.conf.json            CSP, bundle config
 kb-core/                     local long-term memory service (Python; see kb-core/README.md)

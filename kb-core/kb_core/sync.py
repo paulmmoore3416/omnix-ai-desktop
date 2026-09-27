@@ -25,7 +25,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 from .store import MAX_DOCUMENT_BYTES, KbError, KnowledgeBase, now_iso
 
@@ -81,32 +81,29 @@ def read_document(path: Path) -> str | None:
 
 
 def iter_files(root: Path, include_code: bool = True) -> Iterator[Path]:
-    """Indexable files under ``root``, skipping hidden and build directories."""
-    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
-        dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and d not in SKIP_DIRS)
-        for f in sorted(filenames):
-            p = Path(dirpath) / f
-            if (
-                not f.startswith(".")
-                and p.suffix.lower() in (EXTENSIONS if include_code else NOTE_EXT | PDF_EXT)
-                and f.lower() not in SKIP_NAMES
-                and not p.is_symlink()
-            ):
-                yield p
+    """Indexable files under ``root`` per its connector (see ``connectors.py``)."""
+    from .connectors import connector_for  # connectors imports this module
+
+    return connector_for(root).iter_files(root, include_code)
 
 
 def doc_name(root: Path, path: Path) -> str:
     return f"{root.name}/{path.relative_to(root).as_posix()}"
 
 
-def sync_folder(kb: KnowledgeBase, root: Path, collection: str | None = None) -> dict[str, int]:
-    """One pass over ``root``. Returns counts of what changed."""
+def sync_folder(kb: KnowledgeBase, root: Path, collection: str | None = None,
+                connector: Any = None) -> dict[str, int]:
+    """One pass over ``root`` with its connector (auto-detected unless
+    given). Returns counts of what changed."""
+    from .connectors import connector_for
+
     counts = {"files": 0, "indexed": 0, "unchanged": 0, "removed": 0, "skipped": 0}
     if not root.is_dir():
         raise FileNotFoundError(f"{root} is not a directory")
+    conn = connector or connector_for(root)
     known = kb.documents_by_source(root)
     seen: set[str] = set()
-    for path in iter_files(root, kb.cfg.index_code):
+    for path in conn.iter_files(root, kb.cfg.index_code):
         counts["files"] += 1
         key = str(path)
         seen.add(key)
@@ -122,12 +119,12 @@ def sync_folder(kb: KnowledgeBase, root: Path, collection: str | None = None) ->
         if st.st_size > (MAX_PDF_BYTES if is_pdf else MAX_DOCUMENT_BYTES):
             counts["skipped"] += 1
             continue
-        text = read_document(path)
+        text = conn.read(path)
         if text is None or len(text.encode("utf-8")) > MAX_DOCUMENT_BYTES:
             counts["skipped"] += 1
             continue
         try:
-            res = kb.index_document(doc_name(root, path), text, mime_for(path), key, st.st_mtime,
+            res = kb.index_document(doc_name(root, path), text, conn.mime(path), key, st.st_mtime,
                                     collection=collection)
         except KbError as e:
             log.warning("could not index %s: %s", path, e)
@@ -157,7 +154,7 @@ class FolderSync:
         self._stop = threading.Event()
         self._running = threading.Lock()  # the timer and POST /sync never overlap
         kb.sync_status = {"folders": [str(p) for p in self.roots], "interval_s": interval, "last_run": None,
-                          "last_result": {}, "errors": {}}
+                          "last_result": {}, "errors": {}, "connectors": {}}
 
     def start(self) -> None:
         if self.roots:
@@ -177,17 +174,22 @@ class FolderSync:
     def _run(self) -> dict[str, dict[str, int]]:
         results: dict[str, dict[str, int]] = {}
         errors: dict[str, str] = {}
+        connectors: dict[str, str] = {}
+        from .connectors import connector_for
+
         for coll, root in self.targets:
             t0 = time.time()
             try:
-                results[str(root)] = sync_folder(self.kb, root, coll)
+                conn = connector_for(root)
+                connectors[str(root)] = conn.name
+                results[str(root)] = sync_folder(self.kb, root, coll, conn)
                 r = results[str(root)]
                 if r["indexed"] or r["removed"]:
                     log.info("synced %s: %s (%.1fs)", root, r, time.time() - t0)
             except Exception as e:  # noqa: BLE001 - report, keep syncing other folders
                 errors[str(root)] = str(e)
                 log.warning("sync of %s failed: %s", root, e)
-        self.kb.sync_status.update(last_run=now_iso(), last_result=results, errors=errors)
+        self.kb.sync_status.update(last_run=now_iso(), last_result=results, errors=errors, connectors=connectors)
         return results
 
     def _loop(self) -> None:

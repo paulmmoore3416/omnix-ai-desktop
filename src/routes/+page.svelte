@@ -9,6 +9,7 @@
   import { MOODS, conditionForError, rgba, type Condition, type Emotion, type Signal, type SignalKind } from '$lib/avatar';
   import Avatar from '$lib/components/Avatar.svelte';
   import SettingsView from '$lib/components/SettingsView.svelte';
+  import HelpView from '$lib/components/HelpView.svelte';
   import KnowledgeView from '$lib/components/KnowledgeView.svelte';
   import SystemControlView from '$lib/components/SystemControlView.svelte';
   import WorkspaceDock from '$lib/components/workspace/WorkspaceDock.svelte';
@@ -230,7 +231,8 @@
     { id: 'history', label: 'History', icon: '📜', badge: messages.length || null },
     { id: 'settings', label: 'Settings', icon: '⚙️', badge: null },
     { id: 'knowledge', label: 'Knowledge', icon: '🧠', badge: null },
-    { id: 'system', label: 'System Control', icon: '🎛️', badge: null }
+    { id: 'system', label: 'System Control', icon: '🎛️', badge: null },
+    { id: 'help', label: 'Help', icon: '❓', badge: null }
   ]);
 
   // Command palette (Ctrl+K): everything in one box, plus memory search.
@@ -254,6 +256,8 @@
       { id: 'dock', group: 'Actions', icon: '🧰', label: dockOpen ? 'Hide the workspace' : 'Show the workspace', hint: 'Ctrl+.', keywords: 'dock side panel', run: () => (dockOpen = !dockOpen) },
       ...navItems.map((n) => ({ id: `go-${n.id}`, group: 'Go to', icon: n.icon, label: n.label, run: go(n.id) })),
       { id: 'go-voice', group: 'Go to', icon: '🎙️', label: 'Voice settings', keywords: 'microphone tts stt', run: () => { settingsTab = 'voice'; currentView = 'settings'; } },
+      { id: 'go-usage', group: 'Go to', icon: '📊', label: 'Usage and ROI', keywords: 'tokens cost savings analytics stats', run: () => { settingsTab = 'usage'; currentView = 'settings'; } },
+      { id: 'go-license', group: 'Go to', icon: '🔑', label: 'License', keywords: 'pro byok enterprise key tier', run: () => { settingsTab = 'license'; currentView = 'settings'; } },
       ...([
         ['live', '📈', 'Live metrics', 'cpu gpu memory vram'],
         ['tasks', '⚡', 'Side tasks', 'run parallel'],
@@ -1041,6 +1045,11 @@
       <!-- System Control View -->
       <div class="flex-1 overflow-hidden animate-fade-in">
         <SystemControlView />
+      </div>
+    {:else if currentView === 'help'}
+      <!-- Help: bundled HELP.md (local model setup) -->
+      <div class="flex-1 overflow-hidden animate-fade-in">
+        <HelpView />
       </div>
     {:else}
       <!-- Other views placeholder -->

@@ -177,7 +177,8 @@ pub async fn run(
         max_tokens: settings.ai.max_tokens,
         context_window: settings.ai.context_window,
     };
-    let mut trace = TurnTrace::new(&format!("{} (side task)", selected.model));
+    let mut trace = TurnTrace::new(&format!("{} (side task)", selected.model))
+        .with_local(settings.ai.provider == "ollama");
     let result = async {
         let messages = task_messages(instruction, context);
         let mut stream = selected.provider.chat_stream(&messages, &[], &opts).await?;
@@ -216,7 +217,8 @@ pub async fn run(
         (Ok(()), true) => "cancelled",
         (Ok(()), false) => "ok",
     };
-    state.agent_metrics.finish(trace, outcome);
+    let rec = state.agent_metrics.finish(trace, outcome);
+    state.usage.record(&rec);
     result
 }
 

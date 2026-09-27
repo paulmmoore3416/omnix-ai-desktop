@@ -61,6 +61,7 @@ via Vulkan) and an NVIDIA GTX 1060 6 GB (runs Speaches via CUDA), Ubuntu/Debian.
 | AI | `src-tauri/src/ai/`: `provider.rs` (trait), `ollama.rs`, `anthropic.rs`, `openai_compat.rs`, `agent.rs` (tool loop), `endpoint.rs` (local-only guard), `aiorc.rs` (scaffold) |
 | Phone | `src-tauri/src/phone.rs` (Twilio texts/calls, outbound only; token in keychain as `twilio`) |
 | Google | `src-tauri/src/google.rs` (Gmail/Drive via OAuth + PKCE loopback, Developer Knowledge API; off by default, blocked by `local_only`; refresh token `internal.google_refresh`) |
+| Licensing / usage | `src-tauri/src/license.rs` (offline Ed25519 keys, informational tiers; issuer `scripts/omnix-license.py`, signing key in the owner's keyring) · `src-tauri/src/usage.rs` (content-free daily ledger) |
 | Deliverables | `src-tauri/src/workbook.rs` (`.xlsx` from a JSON spec for the `create_workbook` tool); writes go through `security/files.rs::write_bytes` |
 | Integrations | `mcp.rs`, `voice.rs` (Speaches STT client, Piper TTS), `memory/kb_core.rs`, `observability.rs` (Loki), `desktop.rs` (tray, shortcuts), `ai/ollama_admin.rs` (model manager), `ai/metrics.rs` (agent/model metrics) |
 | Host control | `src-tauri/src/system/`: `metrics.rs`, `gpu.rs` (NVIDIA + AMD), `history.rs`, `probe.rs` (fixed-argv reads), `services.rs`, `docker.rs`, `cleanup.rs`, `advisor.rs`, `snapshot.rs` · `src-tauri/src/ops/`: alerts/automations/scheduler (`engine.rs`, `rules.rs`, `cron.rs`, `approval.rs` HMAC) |
@@ -72,6 +73,7 @@ via Vulkan) and an NVIDIA GTX 1060 6 GB (runs Speaches via CUDA), Ubuntu/Debian.
 | App + audit logs | `~/.local/share/com.paulmmoore.omnix/logs/` |
 | Piper venv + voices | `~/.local/share/omnix/` |
 | Memory service (kb-core) | source `kb-core/` (see its README) · installed to `~/.local/share/omnix/kb-core/` (app, venv, `memory.db`) · config `~/.config/omnix/kb-core.env` · CLI `kb-core` |
+| Docker (home server) | `deploy/docker-compose.yml` (+ `docker-compose.nvidia.yml`, `init.sh`), `kb-core/Dockerfile` · connectors: `kb-core/kb_core/connectors.py`, `docs/CONNECTORS.md` |
 | Services | `ollama.service` (+ drop-in `/etc/systemd/system/ollama.service.d/omnix.conf`), Docker container `omnix-speaches` on :8000, user unit `omnix-kb-core` on :8100 |
 
 ---

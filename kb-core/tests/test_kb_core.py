@@ -1002,10 +1002,23 @@ except ImportError:
 
 class CryptoTests(Base):
     def test_key_pragma_only_takes_hex_keys(self) -> None:
-        self.assertEqual(crypto._key_pragma("ab" * 32), "\"x'" + "ab" * 32 + "'\"")
-        for bad in ("", "zz" * 32, "ab" * 31, "ab" * 32 + "'; --"):
+        self.assertEqual(crypto.key_pragma("ab" * 32), "\"x'" + "ab" * 32 + "'\"")
+        self.assertEqual(crypto.key_pragma(None), "''")
+        for bad in ("", "zz" * 32, "ab" * 31, "AB" * 32, "ab" * 32 + "'; --", 42):
             with self.assertRaises(ValueError):
-                crypto._key_pragma(bad)
+                crypto.key_pragma(bad)  # type: ignore[arg-type]
+
+    def test_apply_key_refuses_bad_key_before_sql(self) -> None:
+        class Db:
+            sql: list[str] = []
+
+            def execute(self, q: str) -> None:
+                self.sql.append(q)
+
+        db = Db()
+        with self.assertRaises(ValueError):
+            crypto.apply_key(db, "x'; ATTACH DATABASE '/tmp/p' AS p; --")
+        self.assertEqual(db.sql, [])
 
     def test_plain_file_detected(self) -> None:
         self.kb.save_memory("Paul drives a Tacoma")
@@ -1041,3 +1054,132 @@ class CryptoTests(Base):
         self.cfg.db_key = None
         self.kb = KnowledgeBase(self.cfg, self.emb)
         self.assertEqual(self.kb.get_memory(m)["content"], "Paul's anniversary is October 12")
+
+
+class SqlHygieneTests(unittest.TestCase):
+    """Dynamic SQL stays confined to fixed fragments, placeholders and
+    allowlisted identifiers; values always go through bound parameters."""
+
+    def test_placeholders(self) -> None:
+        from kb_core.store import placeholders
+
+        self.assertEqual(placeholders(3), "?,?,?")
+        for bad in (0, -1, "3", 1.5):
+            with self.assertRaises(ValueError):
+                placeholders(bad)  # type: ignore[arg-type]
+
+    def test_update_columns_are_allowlisted(self) -> None:
+        from kb_core.store import UPDATABLE_COLUMNS
+
+        self.assertNotIn("id", UPDATABLE_COLUMNS)
+        self.assertNotIn("kind", UPDATABLE_COLUMNS)
+        self.assertTrue(all(c.isidentifier() for c in UPDATABLE_COLUMNS))
+
+    def test_every_formatted_statement_is_reviewed(self) -> None:
+        # An f-string that reaches execute() must carry a `noqa: S608 - <why>`
+        # note saying what makes it safe; a new one without it fails here.
+        import kb_core
+
+        root = Path(kb_core.__file__).parent
+        offenders = []
+        for path in sorted(root.glob("*.py")):
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for i, line in enumerate(lines):
+                if not re.search(r"\.execute(?:many|script)?\(\s*f[\"']|\.execute(?:many|script)?\(\s*$", line):
+                    continue
+                window = "\n".join(lines[i:i + 5])
+                if re.search(r"^\s*f[\"']", window.split("\n", 1)[-1], re.M) or "execute(f" in line:
+                    if not re.search(r"noqa: S608 - \w", window):
+                        offenders.append(f"{path.name}:{i + 1}")
+        self.assertEqual(offenders, [])
+
+
+class ConnectorTests(Base):
+    def _vault(self) -> Path:
+        root = Path(self.tmp.name) / "Vault"
+        (root / ".obsidian").mkdir(parents=True)
+        (root / ".trash").mkdir()
+        (root / "Daily").mkdir()
+        (root / ".obsidian" / "workspace.json").write_text("{}")
+        (root / ".trash" / "old.md").write_text("deleted note")
+        (root / "Daily" / "2026-09-26.md").write_text(
+            "---\ntitle: Launch day\ntags: [omnix, launch]\naliases:\n  - Release\n---\n"
+            "Shipped with [[Anna|our reviewer]] and [[Roadmap#Q4]].\n"
+            "%% private aside %%\n![[diagram.png]]\n#priority/high note\n"
+            "```\n#not-a-tag in code\n```\n"
+        )
+        (root / "script.py").write_text("print('code is not a note')")
+        return root
+
+    def test_obsidian_vault_is_detected_and_normalized(self) -> None:
+        from kb_core import connectors
+
+        root = self._vault()
+        conn = connectors.connector_for(root)
+        self.assertEqual(conn.name, "obsidian")
+        files = [p.relative_to(root).as_posix() for p in conn.iter_files(root)]
+        self.assertEqual(files, ["Daily/2026-09-26.md"])
+        text = conn.read(root / "Daily" / "2026-09-26.md")
+        assert text is not None
+        self.assertTrue(text.startswith("Title: Launch day\nAliases: Release\nTags: #omnix #launch #priority/high"))
+        self.assertIn("Shipped with our reviewer and Roadmap.", text)
+        self.assertIn("(embedded: diagram.png)", text)
+        self.assertNotIn("private aside", text)
+        self.assertNotIn("#not-a-tag", text.split("\n\n", 1)[0])
+        self.assertNotIn("---", text.split("\n\n", 1)[0])
+
+    def test_plain_folder_uses_folder_connector(self) -> None:
+        from kb_core import connectors
+
+        root = Path(self.tmp.name) / "plain"
+        root.mkdir()
+        self.assertEqual(connectors.connector_for(root).name, "folder")
+
+    def test_vault_sync_indexes_tags_for_keyword_search(self) -> None:
+        root = self._vault()
+        fs = FolderSync(self.kb, (root,), 60)
+        r = fs.run_once()[str(root)]
+        self.assertEqual((r["files"], r["indexed"]), (1, 1))
+        self.assertEqual(self.kb.stats()["watch"]["connectors"], {str(root): "obsidian"})
+        hits = self.kb.search("launch", mode="keyword")["results"]
+        self.assertTrue(hits and "Launch day" in hits[0]["content"])
+
+    def test_front_matter_parser_is_a_safe_subset(self) -> None:
+        from kb_core.connectors import parse_front_matter
+
+        f, body = parse_front_matter("---\ntags: a, b\nevil: !!python/object:os.system ls\n---\nbody")
+        self.assertEqual(f, {"tags": ["a", "b"]})
+        self.assertEqual(body, "body")
+        self.assertEqual(parse_front_matter("no front matter")[0], {})
+
+    def test_register_rules_and_plugin_allowlist(self) -> None:
+        from kb_core import connectors
+
+        class Bad:
+            name = "bad"
+
+        with self.assertRaises(TypeError):
+            connectors.register(Bad())  # type: ignore[arg-type]
+
+        class Shadow(connectors.Connector):
+            name = "obsidian"
+
+        with self.assertRaises(ValueError):
+            connectors.register(Shadow())
+
+        class Notion(connectors.Connector):
+            name = "notion-export"
+
+            def detect(self, root: Path) -> bool:
+                return (root / "notion.marker").exists()
+
+        root = Path(self.tmp.name) / "export"
+        root.mkdir()
+        (root / "notion.marker").write_text("")
+        connectors.register(Notion())
+        try:
+            self.assertEqual(connectors.connector_for(root).name, "notion-export")
+        finally:
+            connectors._registry.pop("notion-export", None)
+        # Nothing installed under the group is loaded unless allowlisted.
+        self.assertEqual(connectors.load_plugins([]), [])

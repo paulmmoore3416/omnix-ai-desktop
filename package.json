@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "license": "MIT",
+  "license": "UNLICENSED",
+  "private": true,
   "dependencies": {
     "@tauri-apps/api": "^2",
     "dompurify": "^3.0.0",

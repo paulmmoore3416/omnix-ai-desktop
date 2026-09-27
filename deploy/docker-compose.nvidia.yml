@@ -1,0 +1,22 @@
+# NVIDIA GPU override (needs nvidia-container-toolkit):
+#   docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d
+# OMNIX_OLLAMA_GPU / OMNIX_STT_GPU pick the card for each service (default 0),
+# e.g. the larger card for Ollama and the other one for speech-to-text.
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${OMNIX_OLLAMA_GPU:-0}"]
+              capabilities: [gpu]
+  speaches:
+    image: ghcr.io/speaches-ai/speaches:latest-cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${OMNIX_STT_GPU:-0}"]
+              capabilities: [gpu]

@@ -1,6 +1,6 @@
 # Contributing to OMNIX
 
-Thank you for your interest in contributing to OMNIX! This document provides guidelines and instructions for contributing.
+OMNIX is proprietary, closed-source software. This repository is private and contributions are by invitation only. This guide is for invited collaborators.
 
 ## 🌟 Ways to Contribute
 
@@ -12,12 +12,11 @@ Thank you for your interest in contributing to OMNIX! This document provides gui
 
 ## 🚀 Getting Started
 
-### 1. Fork and Clone
+### 1. Clone (invited collaborators)
 
 ```bash
-# Fork the repository on GitHub
-# Then clone your fork
-git clone https://github.com/YOUR_USERNAME/omnix-ai-desktop.git
+# Requires access to the private repository
+git clone https://github.com/paulmmoore3416/omnix-ai-desktop.git
 cd omnix-ai-desktop
 ```
 
@@ -107,7 +106,7 @@ Follow conventional commits:
 - `test:` Adding or updating tests
 - `chore:` Maintenance tasks
 
-### 2. Push to Your Fork
+### 2. Push Your Branch
 
 ```bash
 git push origin feature/your-feature-name
@@ -115,9 +114,9 @@ git push origin feature/your-feature-name
 
 ### 3. Create a Pull Request
 
-1. Go to the original repository on GitHub
+1. Go to the repository on GitHub
 2. Click "New Pull Request"
-3. Select your fork and branch
+3. Select your branch
 4. Fill out the PR template with:
    - Description of changes
    - Related issue numbers
@@ -195,7 +194,7 @@ When requesting features:
 
 ## 📜 License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+OMNIX is proprietary software (see [LICENSE](LICENSE)). Contributions are by invitation only. By contributing, you assign all rights in your contribution to the owner, as set out in section 3 of the license.
 
 ## 🙏 Thank You!
 
