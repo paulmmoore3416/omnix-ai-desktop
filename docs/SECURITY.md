@@ -511,6 +511,25 @@ Only the user's messages and the assistant's replies are archived, never tool
 calls or tool output, so file contents and injected text stay out. They go to
 the local kb-core `conversations` collection, which automatic recall excludes.
 
+## 14a. Licensing, usage ledger and connectors
+
+* **License keys** (`license.rs`) are Ed25519-signed and verified offline against keys compiled into the app
+  (`verify_strict`, a domain-separated message, and a key-length cap), so no endpoint is involved and `local_only` is
+  unaffected. The key file (`license.key`, mode 600) isn't a credential for any service. Install and remove are
+  audited with the license id and tier only. The vendor's signing key lives in the vendor's OS keyring, never in
+  the repo. Tiers gate nothing (`enforced: false`), so a forged or missing key can't unlock anything.
+* **Usage ledger** (`usage.rs`, `usage.json`, mode 600): daily counters and model ids only. No prompts, replies,
+  tool arguments, file names or timestamps finer than a day. There's no network code. Clearing it is audited.
+* **Knowledge connectors** (kb-core): connector output is indexed as data. Third-party connectors are Python
+  entry points that run inside kb-core, so only names listed in `KB_CORE_CONNECTOR_PLUGINS` are loaded. The
+  Obsidian front-matter reader is a small parser that never evaluates YAML tags.
+* **kb-core SQL**: every value is a bound parameter. Where SQLite can't bind (PRAGMA key, `ATTACH … KEY`, PRAGMA
+  integers, column names in `UPDATE`), the text comes from one validator (`crypto.key_pragma`: 64 lowercase hex
+  only), an `int()`, or an allowlist (`UPDATABLE_COLUMNS`). A test fails on any new f-string SQL that lacks a
+  `noqa: S608 - <reason>` note.
+* **Test fixtures**: token-shaped strings in the redaction tests (`audit.rs`) are fake and assembled at runtime, so
+  scanners don't mistake them for leaked credentials.
+
 ## 15. Known limitations
 
 * With the phone enabled, alert summaries, rule messages and texted AI reports

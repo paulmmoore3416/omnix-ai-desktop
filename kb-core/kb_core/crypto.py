@@ -29,6 +29,12 @@ KEYRING_SERVICE = "omnix-kb-core"
 KEYRING_USER = "database-key"
 SQLITE_MAGIC = b"SQLite format 3\x00"
 _KEY_RE = re.compile(r"^[0-9a-f]{64}$")
+# Table names cannot be bound either; spelled out rather than interpolated.
+_COUNT_QUERIES = (
+    "SELECT count(*) FROM items",
+    "SELECT count(*) FROM documents",
+    "SELECT count(*) FROM links",
+)
 
 
 def _keyring() -> Any:
@@ -93,14 +99,27 @@ def is_plain_sqlite(path: Path) -> bool:
         return f.read(len(SQLITE_MAGIC)) == SQLITE_MAGIC
 
 
-def _key_pragma(key: str | None) -> str:
-    # Raw 256-bit key: x'…' skips SQLCipher's PBKDF2 (the key is already
-    # random, stretching it adds nothing). Hex only, so safe to interpolate.
+def key_pragma(key: str | None) -> str:
+    """The SQL literal for ``PRAGMA key = …`` / ``ATTACH … KEY …``.
+
+    SQLite cannot bind parameters in a PRAGMA or in ``ATTACH … KEY``, so the
+    key has to be spelled into the statement. This is the single place that
+    does it, and it only ever emits ``"x'<64 hex>'"``: anything that is not
+    exactly 64 lowercase hex characters raises before reaching SQL. A raw
+    256-bit key (``x'…'``) also skips SQLCipher's PBKDF2 (the key is already
+    random, stretching it adds nothing) so reader connections open instantly.
+    ``None`` means "no key" (a plain SQLite target) and yields ``''``.
+    """
     if key is None:
         return "''"
-    if not _KEY_RE.match(key):
+    if not isinstance(key, str) or not _KEY_RE.match(key):
         raise ValueError("key must be 64 hex characters")
     return f"\"x'{key}'\""
+
+
+def apply_key(db: Any, key: str) -> None:
+    """Key a fresh SQLCipher connection (see :func:`key_pragma`)."""
+    db.execute("PRAGMA key = " + key_pragma(key))
 
 
 def convert(path: Path, src_key: str | None, dst_key: str | None) -> tuple[int, int, int]:
@@ -121,25 +140,26 @@ def convert(path: Path, src_key: str | None, dst_key: str | None) -> tuple[int, 
         src = dbapi.connect(str(path), isolation_level=None)
         try:
             if src_key is not None:  # a plain source takes no key at all
-                src.execute(f"PRAGMA key = {_key_pragma(src_key)}")
+                apply_key(src, src_key)
             src.execute("SELECT count(*) FROM sqlite_master").fetchone()  # fails fast on a wrong key
             src.execute("PRAGMA wal_checkpoint(TRUNCATE)")
             version = src.execute("PRAGMA user_version").fetchone()[0]
-            src.execute(f"ATTACH DATABASE ? AS out KEY {_key_pragma(dst_key)}", (str(tmp),))
+            # The path is bound; the key cannot be (see key_pragma).
+            src.execute("ATTACH DATABASE ? AS out KEY " + key_pragma(dst_key), (str(tmp),))
             src.execute("SELECT sqlcipher_export('out')")
-            src.execute(f"PRAGMA out.user_version = {int(version)}")
+            # PRAGMAs take no bound parameters; int() makes this a literal integer.
+            src.execute("PRAGMA out.user_version = %d" % int(version))
             src.execute("DETACH DATABASE out")
         finally:
             src.close()
         out = dbapi.connect(str(tmp))
         try:
             if dst_key is not None:
-                out.execute(f"PRAGMA key = {_key_pragma(dst_key)}")
+                apply_key(out, dst_key)
             check = out.execute("PRAGMA integrity_check").fetchone()[0]
             if check != "ok":
                 raise SystemExit(f"converted copy failed integrity_check ({check}); {path} is unchanged")
-            counts = tuple(out.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
-                           for t in ("items", "documents", "links"))
+            counts = tuple(out.execute(q).fetchone()[0] for q in _COUNT_QUERIES)
         finally:
             out.close()
         with open(tmp, "rb") as f:

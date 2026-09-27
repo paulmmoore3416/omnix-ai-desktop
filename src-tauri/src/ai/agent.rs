@@ -1357,15 +1357,15 @@ pub async fn run_turn<R: Runtime>(
     user_text: String,
     emit: &(dyn Fn(UiEvent) + Send + Sync),
 ) -> AppResult<()> {
-    let label = {
+    let (label, local) = {
         let s = state.settings.read().await;
         if s.ai.provider == "ollama" {
-            s.ai.ollama_model.clone()
+            (s.ai.ollama_model.clone(), true)
         } else {
-            format!("{}:{}", s.ai.provider, s.ai.cloud_model)
+            (format!("{}:{}", s.ai.provider, s.ai.cloud_model), false)
         }
     };
-    let mut trace = TurnTrace::new(&label);
+    let mut trace = TurnTrace::new(&label).with_local(local);
     let r = run_turn_inner(app, state, user_text, emit, &mut trace).await;
     let outcome = if r.is_err() {
         "error"
@@ -1374,7 +1374,8 @@ pub async fn run_turn<R: Runtime>(
     } else {
         "ok"
     };
-    state.agent_metrics.finish(trace, outcome);
+    let rec = state.agent_metrics.finish(trace, outcome);
+    state.usage.record(&rec);
     r
 }
 

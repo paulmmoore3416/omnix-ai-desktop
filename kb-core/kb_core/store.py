@@ -21,6 +21,19 @@ The database can be encrypted at rest with SQLCipher (whole file, page
 level, so FTS5 keeps working); the key lives in the OS keyring and is
 handed to every connection (see ``crypto.py``).
 
+Documents arrive through ``index_document``, called by the HTTP API, by
+``kb-core ingest``, and by folder sync. Sync and ingest read files through a
+knowledge connector (``connectors.py``: plain folders, Obsidian vaults, or
+allowlisted plugins), so this module only ever sees normalised text.
+
+SQL: every value is a bound parameter. SQLite cannot bind identifiers or
+PRAGMA arguments, so the few places that build statement text use only fixed
+fragments, ``placeholders(n)`` for ``IN`` lists, the ``UPDATABLE_COLUMNS``
+allowlist for ``UPDATE`` column names, ``%d`` for PRAGMA integers, and
+``crypto.key_pragma`` (64 hex characters or nothing) for the SQLCipher key.
+Each such statement carries a ``noqa: S608 - <reason>`` note, and a test
+fails on any that doesn't.
+
 Stored text is data. Nothing here executes, renders or follows it; the only
 place it meets a model is the extraction/contradiction prompts, which frame
 it explicitly as material to analyse.
@@ -88,6 +101,11 @@ REJECT_CAP = 4
 MMR_LAMBDA = 0.72
 MAX_CHUNKS_PER_DOC = 3
 EVENT_KEEP = 2000
+# The only item columns update_memory may write (column names cannot be bound).
+UPDATABLE_COLUMNS = frozenset({
+    "content", "content_hash", "vec", "tags", "importance", "category", "pinned",
+    "superseded_by", "reviewed", "judge", "updated_at",
+})
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 WORD_RE = re.compile(r"\w+", re.UNICODE)
 CATEGORIES = (
@@ -180,16 +198,28 @@ CREATE TABLE IF NOT EXISTS events (
 """
 
 
+# migrate_v2 spells the default collection as a literal (DDL defaults cannot
+# be bound parameters); keep the two in step.
+assert DEFAULT_COLLECTION == "default"
+
+
+def placeholders(n: int) -> str:
+    """``?, ?, …`` for an ``IN (…)`` list of ``n`` bound values."""
+    if not isinstance(n, int) or n < 1:
+        raise ValueError("an IN list needs at least one value")
+    return ",".join("?" * n)
+
+
 def migrate_v2(db: sqlite3.Connection) -> None:
     """v1 → v2: collections (named knowledge bases). Idempotent."""
     cols = {r[1] for r in db.execute("PRAGMA table_info(items)")}
     if "collection" not in cols:
-        db.execute(f"ALTER TABLE items ADD COLUMN collection TEXT NOT NULL DEFAULT '{DEFAULT_COLLECTION}'")
+        db.execute("ALTER TABLE items ADD COLUMN collection TEXT NOT NULL DEFAULT 'default'")
     dcols = {r[1] for r in db.execute("PRAGMA table_info(documents)")}
     if "collection" not in dcols:
-        db.execute(f"ALTER TABLE documents ADD COLUMN collection TEXT NOT NULL DEFAULT '{DEFAULT_COLLECTION}'")
+        db.execute("ALTER TABLE documents ADD COLUMN collection TEXT NOT NULL DEFAULT 'default'")
     db.executescript(
-        f"""
+        """
         CREATE INDEX IF NOT EXISTS items_collection ON items(collection, kind);
         CREATE TABLE IF NOT EXISTS collections (
             name        TEXT PRIMARY KEY,
@@ -197,7 +227,7 @@ def migrate_v2(db: sqlite3.Connection) -> None:
             created_at  TEXT NOT NULL
         );
         INSERT OR IGNORE INTO collections(name, description, created_at)
-            VALUES ('{DEFAULT_COLLECTION}', 'Everything not filed elsewhere', strftime('%Y-%m-%dT%H:%M:%SZ','now'));
+            VALUES ('default', 'Everything not filed elsewhere', strftime('%Y-%m-%dT%H:%M:%SZ','now'));
         INSERT OR IGNORE INTO collections(name, created_at)
             SELECT DISTINCT collection, strftime('%Y-%m-%dT%H:%M:%SZ','now') FROM items;
         """
@@ -439,9 +469,10 @@ class KnowledgeBase:
         db = self._sql.connect(target, check_same_thread=False, **kw)
         db.row_factory = self._sql.Row
         if self.cfg.db_key:
-            # A raw 256-bit key (x'…') skips SQLCipher's PBKDF2 step, so the
-            # per-thread reader connections open instantly.
-            db.execute(f"PRAGMA key = \"x'{self.cfg.db_key}'\"")
+            from .crypto import apply_key
+
+            # Validated hex, raw 256-bit key: see crypto.key_pragma.
+            apply_key(db, self.cfg.db_key)
         try:
             db.execute("SELECT count(*) FROM sqlite_master").fetchone()
         except self._sql.DatabaseError as e:
@@ -475,7 +506,7 @@ class KnowledgeBase:
             migrate_v3(db)
         if version < 4:
             migrate_v4(db)
-        db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        db.execute("PRAGMA user_version = %d" % SCHEMA_VERSION)  # PRAGMAs take no bound parameters
         return db
 
     def _rdb(self) -> sqlite3.Connection:
@@ -903,7 +934,7 @@ class KnowledgeBase:
             new = self.db.execute("SELECT content FROM items WHERE id = ?", (new_id_,)).fetchone()
             olds = self.db.execute(
                 f"SELECT id, content FROM items WHERE kind = 'memory' AND superseded_by IS NULL "
-                f"AND id IN ({','.join('?' * len(candidates))})",  # noqa: S608
+                f"AND id IN ({placeholders(len(candidates))})",  # noqa: S608 - placeholders only
                 candidates,
             ).fetchall()
         if not new or not olds:
@@ -1048,8 +1079,11 @@ class KnowledgeBase:
                     raise BadRequest("only merged or superseded memories can be marked reviewed")
                 sets["reviewed"] = 1 if patch["reviewed"] else 0
             sets["updated_at"] = now_iso()
+            # Column names cannot be bound; every key comes from this fixed set.
+            if not set(sets) <= UPDATABLE_COLUMNS:
+                raise KbError(f"refusing to update columns {sorted(set(sets) - UPDATABLE_COLUMNS)}")
             cols = ", ".join(f"{k} = ?" for k in sets)
-            self.db.execute(f"UPDATE items SET {cols} WHERE id = ?", [*sets.values(), item_id])  # noqa: S608
+            self.db.execute(f"UPDATE items SET {cols} WHERE id = ?", [*sets.values(), item_id])  # noqa: S608 - allowlisted
             if "content" in patch:
                 if vec is not None:
                     self._index_add(item_id, vec)
@@ -1358,7 +1392,7 @@ class KnowledgeBase:
         colls = clean_collections(collections)
         excl = clean_collections(exclude_collections)
 
-        where = [f"i.kind IN ({','.join('?' * len(kinds_))})"]
+        where = [f"i.kind IN ({placeholders(len(kinds_))})"]
         args: list[Any] = sorted(kinds_)
         if not include_superseded:
             where.append("i.superseded_by IS NULL")
@@ -1369,10 +1403,10 @@ class KnowledgeBase:
             where.append("EXISTS (SELECT 1 FROM json_each(i.tags) WHERE value = ?)")
             args.append(t)
         if colls:
-            where.append(f"i.collection IN ({','.join('?' * len(colls))})")
+            where.append(f"i.collection IN ({placeholders(len(colls))})")
             args.extend(colls)
         if excl:
-            where.append(f"i.collection NOT IN ({','.join('?' * len(excl))})")
+            where.append(f"i.collection NOT IN ({placeholders(len(excl))})")
             args.extend(excl)
         filtered = bool(tags_ or category_ or colls or excl or kinds_ != {"memory", "chunk"} or not include_superseded)
         pool = max(40, limit * 8)
@@ -1386,7 +1420,7 @@ class KnowledgeBase:
         if True:  # reads run on this thread's read-only connection, lock-free
             allow = None
             if filtered:
-                allow = {r[0] for r in rdb.execute(f"SELECT i.id FROM items i WHERE {' AND '.join(where)}", args)}  # noqa: S608
+                allow = {r[0] for r in rdb.execute(f"SELECT i.id FROM items i WHERE {' AND '.join(where)}", args)}  # noqa: S608 - fixed fragments
             hits: dict[str, Hit] = {}
             baselines: list[float] = []
             for qv in qvecs or []:
@@ -1410,7 +1444,7 @@ class KnowledgeBase:
                 rows = rdb.execute(
                     f"""SELECT i.id FROM items_fts JOIN items i ON i.pk = items_fts.rowid
                         WHERE items_fts MATCH ? AND {' AND '.join(where)}
-                        ORDER BY bm25(items_fts, 1.0, 0.6, 0.8) LIMIT ?""",  # noqa: S608
+                        ORDER BY bm25(items_fts, 1.0, 0.6, 0.8) LIMIT ?""",  # noqa: S608 - fixed fragments
                     [fq, *args, pool],
                 ).fetchall()
                 for rank, r in enumerate(rows, 1):
@@ -1426,7 +1460,7 @@ class KnowledgeBase:
                 r["id"]: r
                 for r in rdb.execute(
                     f"""SELECT i.*, d.name AS doc_name FROM items i LEFT JOIN documents d ON d.id = i.doc_id
-                        WHERE i.id IN ({','.join('?' * len(ids))})""",  # noqa: S608
+                        WHERE i.id IN ({placeholders(len(ids))})""",  # noqa: S608 - placeholders only
                     ids,
                 )
             }

@@ -51,6 +51,10 @@ pub struct TurnRecord {
     pub ttft_ms: Option<u64>,
     /// Output tokens (reported or estimated).
     pub output_tokens: u64,
+    /// Prompt tokens reported by the backend (0 when it reports none).
+    pub prompt_tokens: u64,
+    /// True when a local model (Ollama) answered.
+    pub local: bool,
     /// Tool calls made.
     pub tools: u32,
     /// Memory entries auto-recalled.
@@ -103,6 +107,10 @@ pub struct TurnTrace {
     pub tools: u32,
     /// Recalled entries.
     pub recalled: u32,
+    /// Prompt tokens reported across the turn's generations.
+    prompt_tokens: u64,
+    /// True when the model runs locally (for the usage ledger).
+    pub local: bool,
 }
 
 impl TurnTrace {
@@ -116,7 +124,15 @@ impl TurnTrace {
             reported_tokens: None,
             tools: 0,
             recalled: 0,
+            prompt_tokens: 0,
+            local: true,
         }
+    }
+
+    /// Mark whether a local model serves this turn (default: local).
+    pub fn with_local(mut self, local: bool) -> Self {
+        self.local = local;
+        self
     }
 
     /// A text fragment arrived.
@@ -157,6 +173,7 @@ impl AgentMetrics {
                 m.cold_starts += 1;
             }
         }
+        trace.prompt_tokens += u.prompt_tokens.unwrap_or(0);
         if let Some(t) = u.output_tokens {
             trace.reported_tokens = Some(trace.reported_tokens.unwrap_or(0) + t);
         }
@@ -193,8 +210,9 @@ impl AgentMetrics {
         g.captured += saved as u64;
     }
 
-    /// The turn ended (`outcome`: `ok`, `error`, `cancelled`).
-    pub fn finish(&self, trace: TurnTrace, outcome: &str) {
+    /// The turn ended (`outcome`: `ok`, `error`, `cancelled`). Returns the
+    /// content-free record (also fed to the persistent usage ledger).
+    pub fn finish(&self, trace: TurnTrace, outcome: &str) -> TurnRecord {
         let (tokens, estimated) = trace.output_tokens();
         let duration_ms = trace.started.elapsed().as_millis() as u64;
         let mut g = lock(&self.inner);
@@ -217,16 +235,20 @@ impl AgentMetrics {
         if g.recent.len() == RECENT {
             g.recent.pop_front();
         }
-        g.recent.push_back(TurnRecord {
+        let rec = TurnRecord {
             ts: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
             model: trace.model,
             duration_ms,
             ttft_ms: trace.ttft_ms,
             output_tokens: tokens,
+            prompt_tokens: trace.prompt_tokens,
+            local: trace.local,
             tools: trace.tools,
             recalled: trace.recalled,
             outcome: outcome.to_string(),
-        });
+        };
+        g.recent.push_back(rec.clone());
+        rec
     }
 
     /// JSON snapshot with derived rates.

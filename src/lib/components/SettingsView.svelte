@@ -5,6 +5,8 @@
   import { startRecording, transcribe } from '$lib/voice';
   import SecretField from './SecretField.svelte';
   import McpServers from './McpServers.svelte';
+  import LicensePanel from './LicensePanel.svelte';
+  import UsagePanel from './UsagePanel.svelte';
 
   let { initialTab = 'general' }: { initialTab?: string } = $props();
   // Seeded once from the prop so the page can deep-link (e.g. mic → Voice tab).
@@ -28,8 +30,12 @@
     { id: 'phone', label: 'Phone', icon: '📱' },
     { id: 'google', label: 'Google', icon: '🔗' },
     { id: 'security', label: 'Security', icon: '🔒' },
-    { id: 'performance', label: 'Performance', icon: '⚡' }
+    { id: 'performance', label: 'Performance', icon: '⚡' },
+    { id: 'usage', label: 'Usage', icon: '📊' },
+    { id: 'license', label: 'License', icon: '🔑' }
   ];
+  // These tabs act immediately and have nothing for "Save Settings" to save.
+  const STANDALONE_TABS = new Set(['usage', 'license']);
 
   onMount(loadSettings);
   onDestroy(() => clearTimeout(statusTimer));
@@ -860,11 +866,15 @@
               </label>
             </div>
           </div>
+        {:else if activeTab === 'usage'}
+          <UsagePanel />
+        {:else if activeTab === 'license'}
+          <LicensePanel />
         {/if}
       </div>
     </div>
 
-    <div class="mt-4 flex justify-end gap-3">
+    <div class="mt-4 flex justify-end gap-3" class:hidden={STANDALONE_TABS.has(activeTab)}>
       <button
         onclick={saveSettings}
         disabled={isSaving}

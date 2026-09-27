@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Usage and ROI (Settings → Usage).** A local, content-free daily ledger (`usage.json`, mode 600) of turns,
+  local vs cloud turns, prompt and output tokens, tool calls, recalled memories, time spent and turns per model,
+  with a 7/30/90/365-day view, a per-day chart and the cloud-equivalent cost of the tokens local models served
+  (editable reference prices). New commands `usage_summary` and `usage_clear` (audited).
+- **License editions (Settings → License).** Lifetime Pro, BYOK and Enterprise Hardened keys are Ed25519-signed
+  and verified offline (`license.rs`, `license_status` / `license_install` / `license_remove`, audited).
+  **Informational only: no feature is gated.** `scripts/omnix-license.py` issues keys with a signing key kept in
+  the OS keyring. See `docs/LICENSING.md`.
+- **In-app Help (❓ in the sidebar).** Bundled `HELP.md` covers local model setup (Ollama models by GPU size, voice,
+  memory, remote services, cloud opt-in) and renders offline through the same sanitizer as chat.
+- **Knowledge connectors (kb-core).** Watched folders and `kb-core ingest` go through a connector. Obsidian vaults
+  are detected automatically: front matter and `#tags` become searchable, wiki links are flattened, comments are
+  dropped, and `.obsidian/` and `.trash/` are skipped. Third-party connectors load from the `kb_core.connectors`
+  entry-point group, but only when named in `KB_CORE_CONNECTOR_PLUGINS`. `kb-core connectors` lists them, and
+  `/stats` shows the connector per folder. See `docs/CONNECTORS.md`.
+- **Docker services for home servers.** `kb-core/Dockerfile` (non-root, token required, healthcheck) and
+  `deploy/docker-compose.yml` with Ollama, a one-shot model puller, Speaches and kb-core, plus an NVIDIA override
+  and `deploy/init.sh` for the token and `.env`. Ports bind to 127.0.0.1 unless `OMNIX_BIND` is changed.
+- **Landing page** (`site/`, static, no external requests) and launch post drafts (`docs/marketing/`).
 - **Workspace notepad.** A resizable Markdown notepad under every Workspace tab: several notes, write / split /
   preview views (headings, tables, quotes, code, ☐/☑ task lists; sanitized like chat), a formatting toolbar,
   Ctrl+B/I and Ctrl+Enter to tick tasks, 🧹 Tidy (side task), copy, pin, and send to chat. **📝 Note** on replies,
@@ -68,6 +87,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Ollama or kb-core has been down for `service_down_minutes`, and when it is back.
 
 ### Changed
+- **License: OMNIX is now proprietary** (all rights reserved; `LICENSE`, `package.json`, `Cargo.toml`,
+  `pyproject.toml`, bundle metadata). Versions published before 2026-09-26 stay MIT for those who obtained them.
+- **kb-core SQL hardening.** SQLCipher keys go through one validator (`crypto.key_pragma` / `apply_key`, 64 hex
+  characters only) because PRAGMAs can't take bound parameters. `IN (…)` lists use `placeholders()`,
+  `update_memory` only writes allowlisted columns (`UPDATABLE_COLUMNS`), and the migrations and PRAGMA integers no
+  longer interpolate. A test now fails on any f-string SQL without a reviewed `noqa: S608 - <reason>` note.
+- **Redaction test fixtures** in `audit.rs` are assembled at runtime, so secret scanners stop flagging them as
+  leaked GitHub/AWS/OpenAI keys. They were never real credentials.
+- Agent metrics now record prompt tokens and whether a local model answered (feeds the usage ledger).
 - **Smoother live metrics.** The Live tab reads cheap host and GPU stats every 1.5 s (the full snapshot every
   10 s), plots the last 2 minutes as monotone curves placed by time that glide continuously, tweens the numbers and
   eases the bars. All sparklines now draw smooth curves that never overshoot the data.

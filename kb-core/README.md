@@ -25,6 +25,7 @@ OMNIX ──HTTP──▶ kb-core (127.0.0.1:8100) ──▶ SQLite  (memory.db,
 | **Your files, not just notes** | Markdown, text, reStructuredText, Org and AsciiDoc; PDFs via `pdftotext`; source code and config files (Python, Rust, Go, JS/TS, Java, C/C++, shell, SQL, Terraform, TOML, YAML, JSON, INI) chunked at functions, classes and sections, so *"the script that monitors the system"* finds `monitor.sh`. |
 | **Built to scale** | A growable in-memory matrix (no rebuild per write, O(1) removal), optional float16 storage (half the RAM), per-thread read-only SQLite connections so searches run in parallel with writes, a query-embedding cache, batch ingest, and Prometheus metrics. |
 | **Live folders** | `KB_CORE_WATCH` folders are re-scanned every 2 minutes. Changed files are re-indexed and deleted files removed. Unchanged chunks keep their vectors, so editing one paragraph re-embeds one chunk. |
+| **Knowledge connectors** | Each folder is read through a connector ([standard](../docs/CONNECTORS.md)). **Obsidian** vaults are detected automatically: front matter and `#tags` become searchable, `[[wiki links]]` are flattened, `%% comments %%` are dropped, and `.obsidian/` and `.trash/` are skipped. Third-party connectors plug in through the `kb_core.connectors` entry-point group, but only when allowlisted in `KB_CORE_CONNECTOR_PLUGINS`. `kb-core connectors` lists them. |
 | **Structure-aware chunking** | Markdown heading breadcrumbs (`notes.md › Backups › ZFS`) are embedded with each chunk. Code fences stay whole. Tiny FAQ sections fold into their parent. Long sections split with overlap. |
 | **Diverse results** | Maximal marginal relevance, and at most 3 chunks per document. |
 | **Never loses a write** | If the embedding model is down, saves still succeed. The item is keyword-searchable at once and embedded by the background worker when the model is back. Changing the embedding model re-embeds everything in the background (keyword search keeps working). |
@@ -58,6 +59,7 @@ kb-core extract "I switched to Fedora on my laptop" --dry-run
 kb-core ingest ~/some/folder -c work   # one-off index into a knowledge base (watching is better)
 kb-core collections                    # knowledge bases with counts
 kb-core sync                           # re-scan watched folders now
+kb-core connectors                     # knowledge connectors (folder, obsidian, enabled plugins)
 kb-core export ~/omnix-memory.jsonl    # backup (mode 600)
 kb-core import ~/omnix-memory.jsonl
 kb-core maintenance                    # merge duplicates, backfill, VACUUM
@@ -111,6 +113,7 @@ claude mcp add kb-core -- kb-core mcp --all --exclude clinical,conversations --a
 | `KB_CORE_INDEX_CODE` | `1` | Also index source and config files in watched folders (`0` = notes and PDFs only). |
 | `KB_CORE_VECTOR_DTYPE` | `float32` | `float16` halves the vector index's RAM for very large stores. |
 | `KB_CORE_WATCH_INTERVAL` | `120` | Seconds between scans (min 10). |
+| `KB_CORE_CONNECTOR_PLUGINS` | empty | Comma-separated third-party [connectors](../docs/CONNECTORS.md) to load (entry-point group `kb_core.connectors`). Obsidian vaults and plain folders need nothing. |
 | `KB_CORE_TOKEN_FILE` | empty | File holding a bearer token; when set, every request needs it. |
 | `KB_CORE_ALLOWED_HOSTS` | empty | Extra `Host` names accepted when no token is set. |
 | `KB_CORE_DUPLICATE_THRESHOLD` / `KB_CORE_RELATED_THRESHOLD` | `0.985` / `0.75` | Cosine cut-offs for auto-merge and linking. |
@@ -118,6 +121,9 @@ claude mcp add kb-core -- kb-core mcp --all --exclude clinical,conversations --a
 | `KB_CORE_LOG` | `INFO` | Log level. Logs never contain memory text. |
 
 After editing: `systemctl --user restart omnix-kb-core`.
+
+**Docker:** `kb-core/Dockerfile` builds a non-root image (uid 10001, data in `/data`, bearer token required).
+`deploy/docker-compose.yml` runs it next to Ollama and Speaches. See `docs/SERVER_DEPLOYMENT.md`, layout C.
 
 ## API
 
@@ -141,6 +147,10 @@ curl -s localhost:8100/search -H 'Content-Type: application/json' \
   with SQLCipher (page-level AES-256, so FTS5 and the WAL work unchanged); the random 256-bit key lives only in the
   OS keyring, which must be unlocked for kb-core to start. Exports (`kb-core export`) are plain JSON: keep them
   somewhere safe.
+* **Parameterised SQL.** Every value is bound. The statement text SQLite can't bind (PRAGMA key, `ATTACH … KEY`,
+  PRAGMA integers, `UPDATE` column names, `IN` lists) comes only from `crypto.key_pragma` (64 hex characters),
+  `int()`, the `UPDATABLE_COLUMNS` allowlist or `placeholders(n)`. A test fails on any new f-string SQL without a
+  reviewed `noqa: S608 - <reason>` note.
 * **Stored text is data.** kb-core never executes or renders it. The LLM prompts frame it as material to analyse
   and tell the model to ignore instructions inside it. OMNIX wraps everything it reads back as untrusted.
 * **Model-proposed changes are reversible.** Merged and superseded memories are hidden, not deleted, and can be
@@ -157,6 +167,9 @@ curl -s localhost:8100/search -H 'Content-Type: application/json' \
   restating it clears the flags.
 * **Provenance travels with every hit.** Search results carry `origin` (`user`, `extract`, `assistant`, `import`,
   `mcp`, `document`) so the caller can label unverified text as such.
+* **Plugins are opt-in by name.** Installed connector packages are ignored unless listed in
+  `KB_CORE_CONNECTOR_PLUGINS`, because they run inside kb-core with access to the database. The Obsidian
+  front-matter reader never evaluates YAML tags.
 * **Standard library only**, apart from optional numpy, optional onnxruntime + tokenizers (NLI judge), optional
   sqlcipher3 + keyring (encryption), and `pdftotext` for PDFs (run with fixed arguments and a timeout). The whole service is about 3,200 lines of Python.
 

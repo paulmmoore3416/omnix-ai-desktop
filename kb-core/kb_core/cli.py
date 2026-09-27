@@ -12,6 +12,7 @@ index is always authoritative.
     extract TEXT [--dry-run]        capture facts from text with the local LLM
     ingest DIR [--dry-run]          index a folder once (watching: KB_CORE_WATCH)
     sync                            re-scan watched folders now
+    connectors                      list knowledge connectors (folder, obsidian, plugins)
     export [FILE]                   NDJSON backup (stdout by default)
     import FILE                     restore/merge an export
     maintenance                     consolidate duplicates, backfill, compact
@@ -95,6 +96,10 @@ def cmd_serve(args: argparse.Namespace) -> int:
         nli,
     )
     kb.start_worker()
+    if cfg.connector_plugins:
+        from .connectors import load_plugins
+
+        load_plugins(cfg.connector_plugins)
     sync = FolderSync(kb, cfg.watch, cfg.watch_interval)
     sync.start()
     logging.getLogger("kb-core").info(
@@ -174,13 +179,19 @@ def cmd_extract(args: argparse.Namespace) -> int:
 
 
 def cmd_ingest(args: argparse.Namespace) -> int:
-    from .sync import doc_name, iter_files, mime_for, read_document
+    from .connectors import connector_for, load_plugins
+    from .sync import doc_name
 
+    plugins = Config.from_env().connector_plugins
+    if plugins:
+        load_plugins(plugins)
     root = Path(args.folder).expanduser().resolve()
     if not root.is_dir():
         print(f"not a directory: {root}", file=sys.stderr)
         return 2
-    files = list(iter_files(root))
+    conn = connector_for(root)
+    print(f"connector: {conn.name} ({conn.description})")
+    files = list(conn.iter_files(root))
     if args.dry_run:
         for f in files:
             print(doc_name(root, f))
@@ -190,12 +201,12 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     totals = {"created": 0, "updated": 0, "unchanged": 0, "failed": 0}
     for n, f in enumerate(files, 1):
         name = doc_name(root, f)
-        text = read_document(f)
+        text = conn.read(f)
         if text is None:
             print(f"[{n}/{len(files)}] skip {name}: not readable as text")
             totals["failed"] += 1
             continue
-        body = {"name": name, "content": text, "mime_type": mime_for(f)}
+        body = {"name": name, "content": text, "mime_type": conn.mime(f)}
         if args.collection:
             body["collection"] = args.collection
         r = call("POST", "/documents", body)
@@ -203,6 +214,17 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         print(f"[{n}/{len(files)}] {r.get('status', 'ok'):<9} {name} ({r['chunks']} chunks)")
     print(", ".join(f"{k} {v}" for k, v in totals.items()))
     return 1 if totals["failed"] else 0
+
+
+def cmd_connectors(args: argparse.Namespace) -> int:
+    from .connectors import available, load_plugins
+
+    plugins = Config.from_env().connector_plugins
+    if plugins:
+        load_plugins(plugins)
+    for c in available():
+        print(f"{c.name:<12} {c.description}")
+    return 0
 
 
 def cmd_collections(args: argparse.Namespace) -> int:
@@ -372,6 +394,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--dry-run", action="store_true")
     s.set_defaults(fn=cmd_ingest)
     sub.add_parser("sync").set_defaults(fn=cmd_sync)
+    sub.add_parser("connectors", help="list knowledge connectors").set_defaults(fn=cmd_connectors)
     sub.add_parser("collections").set_defaults(fn=cmd_collections)
     s = sub.add_parser("export")
     s.add_argument("file", nargs="?")

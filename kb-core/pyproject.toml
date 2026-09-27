@@ -3,7 +3,7 @@ name = "kb-core"
 version = "2.1.0"
 description = "Local long-term memory engine for OMNIX: hybrid search, memory dynamics, fact capture, live folder sync."
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "Proprietary" }
 requires-python = ">=3.10"
 dependencies = []
 

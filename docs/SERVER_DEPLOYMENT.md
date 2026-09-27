@@ -25,6 +25,22 @@ and speech-to-text, are plain network services. That allows two layouts:
 Layout B keeps working in **local-only mode** as long as the server address is private: RFC 1918 (`192.168.x.x`,
 `10.x.x.x`), Tailscale (`100.64.0.0/10`), or IPv6 ULA. Public addresses are refused by design.
 
+**C. Docker (services only).** For a home server that already runs Docker, `deploy/docker-compose.yml` runs Ollama,
+Speaches and kb-core as containers. It's the same as layout B, but without touching the host's packages:
+
+```bash
+cd deploy && ./init.sh          # .env + a random kb-core token in secrets/ (dir 700)
+docker compose up -d            # CPU; pulls OMNIX_MODELS on first start (one-shot `models` service)
+docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up -d   # NVIDIA (nvidia-container-toolkit)
+```
+
+Ports bind to `OMNIX_BIND` (`127.0.0.1` by default). kb-core requires the bearer token, and `/health` answers 401
+without it. Point each client's Settings at the server and paste the token from `deploy/secrets/kb_core_token` into
+Settings → Memory, where it goes into the keychain. `OMNIX_NOTES_DIR` is mounted read-only at `/notes` and indexed,
+and an Obsidian vault is detected automatically. The AMD/Vulkan split in §4 isn't covered by the Compose file:
+use `bootstrap.sh` on bare metal for that. The OMNIX app itself isn't containerised, because it needs a desktop
+session, native dialogs and the OS keychain.
+
 > The approval dialogs and keychain need a real graphical session with a polkit agent and GNOME Keyring/KWallet.
 > Don't run the app under Xvfb or plain SSH. Use layout B, or a remote-desktop session (GNOME Remote Desktop, RDP, VNC).
 

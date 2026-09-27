@@ -3,6 +3,8 @@ name = "omnix"
 version = "1.1.0"
 description = "OMNIX - local-first AI desktop assistant"
 authors = ["Paul Moore <paulmmoore3416@gmail.com>"]
+license-file = "../LICENSE"
+publish = false
 edition = "2021"
 # Effective minimum: sysinfo 0.39 requires 1.95.
 rust-version = "1.95"
@@ -57,6 +59,8 @@ rust_xlsxwriter = "0.99"
 # Google integration (`google.rs`): PKCE/base64url, and opening the consent page in the
 # system browser from Rust only (no opener permissions are granted to the webview).
 base64 = "0.22"
+# Offline license verification (`license.rs`): Ed25519 signatures only, no key generation in the app.
+ed25519-dalek = "3"
 tauri-plugin-opener = "2"
 
 [target.'cfg(target_os = "linux")'.dependencies]

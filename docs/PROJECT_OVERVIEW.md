@@ -10,7 +10,7 @@
 | **Memory** | kb-core: local long-term memory engine (Python, SQLite FTS5 + vectors, Ollama embeddings) |
 | **Codebase** | ~18.8k lines of Rust, ~6.6k lines of TypeScript/Svelte, ~3.2k lines of Python (kb-core) |
 | **Quality gates** | 148 Rust tests · 29 Vitest tests · 61 kb-core tests · `clippy -D warnings` · `svelte-check` 0/0 · `cargo audit` / `npm audit` clean |
-| **License** | MIT |
+| **License** | Proprietary (all rights reserved) |
 | **Author** | Paul Moore, Moore Core Technologies |
 
 ---

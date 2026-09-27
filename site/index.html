@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OMNIX: Local-First AI</title>
+<meta name="description" content="OMNIX is a local-first AI command center for your desktop: private chat, memory, voice and live GPU monitoring on your own hardware.">
+<!-- Static and self-contained: no external scripts, fonts, trackers or analytics. -->
+<style>
+  :root {
+    --bg: #0b0d1a; --bg2: #121530; --panel: rgba(255,255,255,0.045); --line: rgba(255,255,255,0.09);
+    --text: #e6e9f5; --muted: #9aa3c0; --cyan: #22d3ee; --violet: #a78bfa; --green: #4ade80;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; color: var(--text); background: var(--bg);
+    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Ubuntu, Roboto, sans-serif;
+    background-image: radial-gradient(1200px 600px at 70% -10%, rgba(34,211,238,0.14), transparent 60%),
+                      radial-gradient(900px 500px at 0% 20%, rgba(167,139,250,0.14), transparent 60%);
+  }
+  a { color: var(--cyan); text-decoration: none; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+  nav { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
+  .logo { font-weight: 800; letter-spacing: 0.08em; font-size: 1.25rem; color: #fff; text-shadow: 0 0 18px rgba(34,211,238,0.6); }
+  nav .links a { color: var(--muted); margin-left: 22px; font-size: 0.95rem; }
+  nav .links a:hover { color: var(--text); }
+  .hero { display: grid; grid-template-columns: 1.05fr 1fr; gap: 48px; align-items: center; padding: 48px 0 32px; }
+  .eyebrow { display: inline-block; font-size: 0.8rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--cyan);
+             border: 1px solid rgba(34,211,238,0.35); padding: 4px 10px; border-radius: 999px; }
+  h1 { font-size: clamp(2.2rem, 5vw, 3.6rem); line-height: 1.08; margin: 18px 0 16px; letter-spacing: -0.02em; }
+  h1 .grad { background: linear-gradient(90deg, var(--cyan), var(--violet)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lead { color: var(--muted); font-size: 1.15rem; max-width: 34em; }
+  .cta { display: flex; gap: 14px; margin-top: 28px; flex-wrap: wrap; }
+  .btn { padding: 12px 20px; border-radius: 10px; font-weight: 600; border: 1px solid var(--line); color: var(--text); background: var(--panel); }
+  .btn.primary { background: linear-gradient(90deg, #0891b2, #7c3aed); border: 0; color: #fff; box-shadow: 0 8px 30px rgba(124,58,237,0.35); }
+  .core { justify-self: center; width: min(100%, 420px); height: auto; border-radius: 22px; box-shadow: 0 0 80px rgba(167,139,250,0.35); }
+  .shot { width: 100%; height: auto; border-radius: 14px; border: 1px solid var(--line); box-shadow: 0 30px 80px rgba(0,0,0,0.55); display: block; }
+  section { padding: 56px 0; }
+  h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); margin: 0 0 10px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 32px; max-width: 42em; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
+  .card h3 { margin: 6px 0 8px; font-size: 1.1rem; }
+  .card p { margin: 0; color: var(--muted); font-size: 0.97rem; }
+  .icon { font-size: 1.5rem; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center; }
+  ul.checks { list-style: none; padding: 0; margin: 0; }
+  ul.checks li { padding: 8px 0 8px 30px; position: relative; color: var(--muted); }
+  ul.checks li::before { content: "✓"; position: absolute; left: 0; color: var(--green); font-weight: 700; }
+  ul.checks strong { color: var(--text); }
+  .tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .tier { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 26px; display: flex; flex-direction: column; }
+  .tier.featured { border-color: rgba(34,211,238,0.55); box-shadow: 0 0 50px rgba(34,211,238,0.12); }
+  .tier .name { color: var(--cyan); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; font-size: 0.85rem; }
+  .tier .price { font-size: 2rem; font-weight: 800; margin: 8px 0 2px; }
+  .tier .per { color: var(--muted); font-size: 0.9rem; margin-bottom: 16px; }
+  .note { color: var(--muted); font-size: 0.88rem; margin-top: 18px; }
+  footer { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--muted); font-size: 0.9rem; }
+  footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  @media (max-width: 860px) {
+    .hero, .split { grid-template-columns: 1fr; }
+    .grid, .tiers { grid-template-columns: 1fr; }
+    nav .links { display: none; }
+  }
+</style>
+</head>
+<body>
+<header class="wrap">
+  <nav>
+    <div class="logo">OMNIX</div>
+    <div class="links"><a href="#features">Features</a><a href="#privacy">Privacy</a><a href="#pricing">Pricing</a></div>
+  </nav>
+  <div class="hero">
+    <div>
+      <span class="eyebrow">v1.1.0 · Linux · macOS · Windows</span>
+      <h1>Your AI command center. <span class="grad">On your own hardware.</span></h1>
+      <p class="lead">OMNIX is a local-first AI desktop assistant. Chat, memory, voice and system control all run on your
+        machine and your GPUs, and your data stays on your disk.</p>
+      <div class="cta">
+        <a class="btn primary" href="#pricing">Get OMNIX</a>
+        <a class="btn" href="#features">See what it does</a>
+      </div>
+    </div>
+    <img class="core" src="img/computing.png" alt="The OMNIX core animation while a local model is generating" width="415" height="315">
+  </div>
+</header>
+
+<main>
+  <section class="wrap" aria-label="Screenshot">
+    <img class="shot" src="img/home.png" alt="OMNIX home: the core, quick actions, the command bar, and a live panel with CPU, memory, an NVIDIA and an AMD GPU, and loaded models" width="1865" height="1043">
+  </section>
+
+  <section id="features" class="wrap">
+    <h2>More than a chat box. A workspace.</h2>
+    <p class="sub">OMNIX combines a local model, long-term memory and your machine's live state in one place, so
+      the assistant knows your context and can act on it with your approval.</p>
+    <div class="grid">
+      <div class="card"><div class="icon">🖥️</div><h3>Hardware-native</h3><p>Live CPU, memory and per-GPU monitoring for NVIDIA and AMD, with VRAM, temperature and power, plus which models are loaded and whether they fit on the GPU.</p></div>
+      <div class="card"><div class="icon">🧠</div><h3>Persistent memory</h3><p>Hybrid keyword and semantic search over your memories and notes, with recency, reinforcement and corrections. Point it at an Obsidian vault and it keeps it indexed.</p></div>
+      <div class="card"><div class="icon">📋</div><h3>Situation briefs</h3><p>One click summarises what's happening on your system: alerts, load, services and recent activity.</p></div>
+      <div class="card"><div class="icon">🎙️</div><h3>Voice, locally</h3><p>Push-to-talk with local speech-to-text and read-aloud through local voices. No audio leaves the machine.</p></div>
+      <div class="card"><div class="icon">⚡</div><h3>Commands with guardrails</h3><p>Shell, file and system actions are risk-classified. Anything that changes your system needs your approval in a native dialog, and every action lands in a tamper-evident audit log.</p></div>
+      <div class="card"><div class="icon">📊</div><h3>See your own ROI</h3><p>A private usage ledger shows the turns, tokens and tool calls your local models handled, and what the same work would have cost from a cloud API.</p></div>
+    </div>
+  </section>
+
+  <section id="privacy" class="wrap">
+    <div class="split">
+      <div>
+        <h2>Privacy isn't a feature. It's the default.</h2>
+        <p class="sub">Most AI tools send every prompt to someone else's server. OMNIX starts in local-only mode and
+          enforces it in the backend, not just in the interface.</p>
+        <ul class="checks">
+          <li><strong>Local-only by default.</strong> Cloud providers are blocked until you turn them on.</li>
+          <li><strong>Keys in your OS keychain.</strong> They're never stored in settings files or shown again.</li>
+          <li><strong>Encrypted memory at rest</strong> (SQLCipher) as an option, with the key in your keyring.</li>
+          <li><strong>Air-gap friendly.</strong> Licenses are checked offline, and nothing phones home.</li>
+          <li><strong>Hash-chained audit log</strong> of every sensitive action.</li>
+        </ul>
+      </div>
+      <img class="shot" src="img/knowledge.png" alt="OMNIX Knowledge view: memories, documents, watched folders and knowledge bases" width="1950" height="680">
+    </div>
+  </section>
+
+  <section id="pricing" class="wrap">
+    <h2>Pricing</h2>
+    <p class="sub">Every edition runs locally. Choose the one that fits how you work.</p>
+    <div class="tiers">
+      <div class="tier featured">
+        <div class="name">Lifetime Pro</div>
+        <div class="price">$50–$100</div>
+        <div class="per">one-time purchase</div>
+        <ul class="checks">
+          <li>For local power users</li>
+          <li>Advanced GPU monitoring and history</li>
+          <li>Unlimited local memory</li>
+          <li>All v1.x updates</li>
+        </ul>
+      </div>
+      <div class="tier">
+        <div class="name">BYOK</div>
+        <div class="price">$10–$15</div>
+        <div class="per">per month</div>
+        <ul class="checks">
+          <li>The OMNIX workspace with your own cloud API keys</li>
+          <li>OpenAI, Anthropic, Gemini, xAI</li>
+          <li>Everything in Pro while subscribed</li>
+        </ul>
+      </div>
+      <div class="tier">
+        <div class="name">Enterprise Hardened</div>
+        <div class="price">Custom</div>
+        <div class="per">outcome-based</div>
+        <ul class="checks">
+          <li>Air-gapped installations</li>
+          <li>Hardening review and deployment support</li>
+          <li>Custom support agreement</li>
+        </ul>
+      </div>
+    </div>
+    <p class="note">Final prices will be set at launch. Contact <a href="mailto:paulmmoore3416@gmail.com">paulmmoore3416@gmail.com</a> for Enterprise.</p>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 Paul Moore. All rights reserved. OMNIX is proprietary software.</span>
+    <span>Built with Tauri, Rust and Svelte.</span>
+  </div>
+</footer>
+</body>
+</html>

@@ -4,7 +4,7 @@
 
 ### A local-first AI desktop assistant
 
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-proprietary-red.svg)](LICENSE)
 [![Tauri](https://img.shields.io/badge/Tauri-2-orange.svg)](https://tauri.app)
 [![Svelte](https://img.shields.io/badge/Svelte-5-red.svg)](https://svelte.dev)
 [![Rust](https://img.shields.io/badge/Rust-1.95+-orange.svg)](https://www.rust-lang.org)
@@ -49,6 +49,11 @@
 | MCP servers (stdio or HTTP) as extra AI tools, every call policy-gated and audited | ✅ Settings → MCP Servers |
 | Phone: alerts, rules and reports can **text or call your phone** (Twilio, outbound only, rate-limited, audited) | ✅ off by default; Settings → Phone |
 | Tray icon, close-to-tray, single instance, remembered window size | ✅ |
+| **Usage and ROI**: a private, content-free daily ledger of turns, tokens, tool calls and models, with the cloud-equivalent cost of the work local models did (Settings → Usage) | ✅ stays on this machine |
+| **License editions** (Lifetime Pro, BYOK, Enterprise): offline Ed25519-verified keys, Settings → License ([details](docs/LICENSING.md)) | ✅ informational: no feature is gated |
+| In-app **Help** for local model setup (Ollama, voice, memory, remote services) | ✅ |
+| **Knowledge connectors**: watched folders go through a connector; Obsidian vaults are detected automatically (front matter, #tags, wiki links); allowlisted third-party connectors via entry points ([standard](docs/CONNECTORS.md)) | ✅ |
+| **Docker services for home servers**: Ollama, Speaches and kb-core with one `docker compose up` ([deploy/](deploy/docker-compose.yml)) | ✅ app itself stays native |
 | Optional audit-log shipping to Grafana Loki | ✅ off by default |
 | AIORC routing backend | 🚧 scaffold only (`--features aiorc`), awaiting its `.proto` |
 | Auto-update | 🚧 not enabled until release signing is configured |
@@ -221,7 +226,7 @@ git checkout -b feature/my-change
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+Proprietary. © 2026 Paul Moore, all rights reserved. See [LICENSE](LICENSE). Versions published before 2026-09-26 were MIT-licensed; later versions are not.
 
 ## Support
 

@@ -539,3 +539,48 @@ export interface RecalledMemory {
   preview: string;
   origin: string | null;
 }
+
+/** Mirrors `license::Tier`. */
+export type LicenseTier = 'community' | 'pro' | 'byok' | 'enterprise';
+
+/** Mirrors `license::LicenseStatus` (tiers are informational: `enforced` is always false). */
+export interface LicenseStatus {
+  tier: LicenseTier;
+  licensed_tier: LicenseTier | null;
+  licensee: string | null;
+  email: string | null;
+  id: string | null;
+  issued: string | null;
+  expires: string | null;
+  expired: boolean;
+  seats: number | null;
+  error: string | null;
+  entitlements: string[];
+  enforced: boolean;
+}
+
+/** Mirrors `usage::Totals`. */
+export interface UsageTotals {
+  turns: number;
+  local_turns: number;
+  cloud_turns: number;
+  errors: number;
+  cancelled: number;
+  prompt_tokens: number;
+  output_tokens: number;
+  local_prompt_tokens: number;
+  local_output_tokens: number;
+  tool_calls: number;
+  recalled: number;
+  active_ms: number;
+  models: Record<string, number>;
+}
+
+/** Mirrors `usage::UsageSummary`. */
+export interface UsageSummary {
+  days: (UsageTotals & { date: string })[];
+  window: UsageTotals;
+  all_time: UsageTotals;
+  since: string | null;
+  window_days: number;
+}

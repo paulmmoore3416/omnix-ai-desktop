@@ -98,4 +98,4 @@ Relates to #
 
 ---
 
-**By submitting this pull request, I confirm that my contribution is made under the terms of the MIT License.**
+**By submitting this pull request, I assign all rights in my contribution to the owner of OMNIX under section 3 of the [LICENSE](../LICENSE).**

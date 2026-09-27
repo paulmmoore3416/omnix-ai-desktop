@@ -58,6 +58,9 @@ class Config:
     # (collection or None, folder) pairs; `name=/path` files a folder into a collection.
     watch: tuple[tuple[str | None, Path], ...] = ()
     watch_interval: float = 120.0
+    # Third-party knowledge connectors (entry points in the kb_core.connectors
+    # group) to load. Empty = built-ins only; see connectors.py.
+    connector_plugins: tuple[str, ...] = ()
     # Cosine thresholds for memory consolidation (model dependent; the
     # defaults suit nomic-embed-text). Embeddings cannot tell agreement from
     # contradiction ("prefers morning meetings" vs "prefers afternoon
@@ -111,6 +114,9 @@ class Config:
             allowed_hosts=hosts,
             watch=watch,
             watch_interval=max(10.0, _float("KB_CORE_WATCH_INTERVAL", cls.watch_interval)),
+            connector_plugins=tuple(
+                p.strip().lower() for p in os.environ.get("KB_CORE_CONNECTOR_PLUGINS", "").split(",") if p.strip()
+            ),
             duplicate_threshold=_float("KB_CORE_DUPLICATE_THRESHOLD", cls.duplicate_threshold),
             related_threshold=_float("KB_CORE_RELATED_THRESHOLD", cls.related_threshold),
             half_life_days=max(1.0, _float("KB_CORE_HALF_LIFE_DAYS", cls.half_life_days)),

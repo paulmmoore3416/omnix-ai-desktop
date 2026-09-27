@@ -1,21 +1,41 @@
-MIT License
+OMNIX Proprietary License
 
-Copyright (c) 2026 Paul Moore
+Copyright (c) 2026 Paul Moore. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This software and its source code, documentation, designs, images and other
+associated files (the "Software") are proprietary and confidential. They are
+the exclusive property of Paul Moore (the "Owner").
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. No license is granted except in writing. You may not use, copy, modify,
+   merge, publish, distribute, sublicense, sell, reverse engineer, decompile
+   or create derivative works of the Software, in whole or in part, unless the
+   Owner has granted you a written license (including a license key issued
+   for a specific edition of OMNIX) and then only within its terms.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. Access to this repository, or to any copy of the Software, does not grant
+   any right to the Software. Anyone given access for development, review or
+   testing must keep the Software confidential and use it only for that
+   purpose.
+
+3. Contributions (code, documentation, designs or other material) submitted to
+   the Owner become the Owner's property, and the contributor assigns to the
+   Owner all rights in them, unless a separate written agreement says
+   otherwise.
+
+4. Third-party components included with or used by the Software remain
+   subject to their own licenses, which this license does not change. Their
+   notices are listed in the respective package manifests (Cargo.lock,
+   package-lock.json and kb-core/pyproject.toml) and dependency sources.
+
+5. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+   OWNER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+   ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+   CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Versions of this Software published before 2026-09-26 under the MIT License
+remain available under that license to those who obtained them then; this
+license applies to all later versions.
+
+For licensing enquiries: paulmmoore3416@gmail.com
