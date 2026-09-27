@@ -9,7 +9,9 @@
         ? { kind, title: '', message: '' }
         : kind === 'command'
           ? { kind, command: '', cwd: null }
-          : { kind, prompt: 'Summarise the health of this computer and anything that needs my attention.', save_to_memory: false };
+          : kind === 'text' || kind === 'call'
+            ? { kind, message: '' }
+            : { kind, prompt: 'Summarise the health of this computer and anything that needs my attention.', save_to_memory: false, text_me: false };
   }
 </script>
 
@@ -21,6 +23,8 @@
       <option value="notify">Show a notification</option>
       <option value="command">Run a command</option>
       <option value="ai_report">Write an AI report</option>
+      <option value="text">Text my phone</option>
+      <option value="call">Call my phone</option>
     </select>
   </div>
   {#if action.kind === 'notify'}
@@ -35,10 +39,16 @@
       Read-only commands just run. Anything that changes your system asks for your approval <em>once</em>, now; OMNIX then runs exactly that
       command unattended. Changing it later needs approval again. Admin (sudo) commands and blocked commands can't be scheduled.
     </p>
+  {:else if action.kind === 'text' || action.kind === 'call'}
+    <input id="{idPrefix}-phone-message" bind:value={action.message} maxlength="500" placeholder={action.kind === 'text' ? 'Text, e.g. Backup finished' : 'What to say, e.g. The server is overheating'} class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm" />
+    <p class="text-xs text-gray-400">Goes to the number in Settings → Phone through Twilio (costs a few cents; counts toward the hourly limit).{action.kind === 'call' ? ' The call reads the message aloud twice.' : ''}</p>
   {:else}
     <textarea id="{idPrefix}-prompt" bind:value={action.prompt} rows="2" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm"></textarea>
     <label class="flex items-center gap-2 text-sm">
       <input id="{idPrefix}-save" type="checkbox" bind:checked={action.save_to_memory} /> Save each report to long-term memory
+    </label>
+    <label class="flex items-center gap-2 text-sm">
+      <input id="{idPrefix}-textme" type="checkbox" bind:checked={action.text_me} /> Also text it to my phone (Settings → Phone)
     </label>
     <p class="text-xs text-gray-400">The local model gets a measured snapshot of this computer (metrics, GPUs, services, containers, models, alerts) and writes a short report. No tools, no commands.</p>
   {/if}

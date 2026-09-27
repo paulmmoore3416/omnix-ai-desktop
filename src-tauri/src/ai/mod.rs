@@ -6,6 +6,7 @@
 //! * [`endpoint`]: `local_only` enforcement (no PHI egress to non-local hosts).
 //! * [`context`]: context-window-aware history truncation.
 //! * [`agent`]: the tool-using agent loop.
+//! * [`tasks`]: tool-less side tasks that run next to the chat.
 
 pub mod agent;
 #[cfg(feature = "aiorc")]
@@ -19,6 +20,7 @@ pub mod ollama_admin;
 pub mod openai_compat;
 pub mod provider;
 pub mod stream;
+pub mod tasks;
 
 use crate::error::{AppError, AppResult};
 use crate::settings::AiSettings;

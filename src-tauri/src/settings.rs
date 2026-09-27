@@ -42,6 +42,10 @@ pub struct Settings {
     pub security: SecuritySettings,
     /// Performance tuning.
     pub performance: PerformanceSettings,
+    /// Texts and calls to the owner's phone (Twilio, outbound only).
+    pub phone: PhoneSettings,
+    /// Gmail, Google Drive and Google developer docs (off by default).
+    pub google: GoogleSettings,
 }
 
 impl Default for Settings {
@@ -57,8 +61,97 @@ impl Default for Settings {
             memory: MemorySettings::default(),
             security: SecuritySettings::default(),
             performance: PerformanceSettings::default(),
+            phone: PhoneSettings::default(),
+            google: GoogleSettings::default(),
         }
     }
+}
+
+/// Google services (see `crate::google`). Off by default and unavailable
+/// while `security.local_only` is on. The OAuth client ID is an identifier,
+/// not a secret; the client secret, the Developer Knowledge key and the
+/// refresh token live in the keychain.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GoogleSettings {
+    /// Master switch. Turning it on is a confirmed change: mail, file
+    /// contents and search queries go to Google when the tools are used.
+    pub enabled: bool,
+    /// OAuth client ID of a "Desktop app" client in the user's own Google
+    /// Cloud project (`….apps.googleusercontent.com`).
+    pub client_id: String,
+    /// Gmail: search, read, create drafts (never send).
+    pub gmail: bool,
+    /// Drive: search, read, upload files OMNIX made.
+    pub drive: bool,
+    /// Developer Knowledge API: search Google's developer documentation.
+    pub dev_docs: bool,
+}
+
+/// Outbound texts and calls to the owner's phone through Twilio. Off by
+/// default. The Twilio auth token lives in the keychain (`twilio`); the
+/// account SID and numbers are identifiers, not secrets. This file never
+/// leaves the machine, so the numbers are not in the repository.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PhoneSettings {
+    /// Allow OMNIX to send texts and place calls. Enabling it is a
+    /// confirmed change: message text goes to Twilio even in local-only mode.
+    pub enabled: bool,
+    /// Twilio account SID (`AC` + 32 hex digits).
+    pub account_sid: String,
+    /// The Twilio number messages come from (E.164, e.g. `+15551234567`).
+    pub from_number: String,
+    /// The owner's phone (E.164). The only recipient OMNIX ever uses.
+    pub to_number: String,
+    /// Cap on texts + calls per rolling hour, so a flapping alert or a
+    /// runaway rule cannot run up a bill (1–60).
+    pub max_per_hour: u32,
+    /// Text when an approval dialog has waited this many seconds unanswered
+    /// (0 = off). Only useful below `security.confirmation_timeout_secs`.
+    pub approval_wait_secs: u32,
+    /// Text when a model download or a rule's command/report took at least
+    /// this many minutes (0 = off).
+    pub long_job_minutes: u32,
+    /// Alerts without their own phone choice: call for critical ones
+    /// (temperature, disk), text for the rest.
+    pub alerts_by_severity: bool,
+    /// Text when Ollama or kb-core has been unreachable this many minutes,
+    /// and again when it is back (0 = off).
+    pub service_down_minutes: u32,
+}
+
+impl Default for PhoneSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            account_sid: String::new(),
+            from_number: String::new(),
+            to_number: String::new(),
+            max_per_hour: 10,
+            approval_wait_secs: 60,
+            long_job_minutes: 5,
+            alerts_by_severity: true,
+            service_down_minutes: 10,
+        }
+    }
+}
+
+/// `+` and 8–15 digits, first digit non-zero (E.164).
+pub fn is_e164(n: &str) -> bool {
+    n.strip_prefix('+').is_some_and(|d| {
+        (8..=15).contains(&d.len()) && d.chars().all(|c| c.is_ascii_digit()) && !d.starts_with('0')
+    })
+}
+
+/// `AC` + 32 lowercase hex digits. Interpolated into the Twilio URL path,
+/// so nothing else is accepted.
+pub fn is_twilio_sid(s: &str) -> bool {
+    s.len() == 34
+        && s.starts_with("AC")
+        && s[2..]
+            .chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
 }
 
 /// MCP client configuration.
@@ -295,13 +388,16 @@ pub struct MemorySettings {
     /// long-term memory as a searchable transcript in the `conversations`
     /// collection. Excluded from automatic recall.
     pub archive_conversations: bool,
-    /// Maximum stored memories.
+    /// Maximum active memories (0 = unlimited). New memories are refused
+    /// when it is reached; nothing is deleted automatically.
     pub max_memory_size: u32,
-    /// Summarize conversations automatically.
+    /// When a conversation is cleared, have the chat model summarize it and
+    /// save the summary as a memory (tagged `source: assistant`).
     pub auto_summarize: bool,
-    /// Retention in days.
+    /// Delete archived conversation transcripts older than this many days
+    /// (0 = keep forever). Memories and documents are never pruned by age.
     pub retention_days: u32,
-    /// Enable semantic search.
+    /// Semantic + keyword (hybrid) search; off = keyword-only.
     pub enable_semantic_search: bool,
 }
 
@@ -316,7 +412,7 @@ impl Default for MemorySettings {
             archive_conversations: true,
             max_memory_size: 1000,
             auto_summarize: false,
-            retention_days: 90,
+            retention_days: 0,
             enable_semantic_search: true,
         }
     }
@@ -378,7 +474,7 @@ impl Default for SecuritySettings {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PerformanceSettings {
-    /// Concurrency cap for background tasks.
+    /// How many side tasks (`ai::tasks`) may run at once.
     pub max_concurrent_tasks: u32,
     /// Enable caching.
     pub cache_enabled: bool,
@@ -434,6 +530,52 @@ impl Settings {
         }
         if !(1..=10).contains(&self.memory.recall_limit) {
             return bad("memory.recall_limit must be between 1 and 10");
+        }
+        if self.memory.max_memory_size > 1_000_000 {
+            return bad("memory.max_memory_size must be at most 1000000 (0 = unlimited)");
+        }
+        if self.memory.retention_days > 36_500 {
+            return bad("memory.retention_days must be at most 36500 (0 = keep forever)");
+        }
+        let ph = &self.phone;
+        if !ph.account_sid.is_empty() && !is_twilio_sid(&ph.account_sid) {
+            return bad("phone.account_sid must look like AC followed by 32 hex digits");
+        }
+        for (n, what) in [
+            (&ph.from_number, "from_number"),
+            (&ph.to_number, "to_number"),
+        ] {
+            if !n.is_empty() && !is_e164(n) {
+                return Err(AppError::InvalidInput(format!(
+                    "phone.{what} must be in international format, e.g. +15551234567"
+                )));
+            }
+        }
+        if ph.enabled
+            && (ph.account_sid.is_empty() || ph.from_number.is_empty() || ph.to_number.is_empty())
+        {
+            return bad("to enable the phone, fill in the account SID and both numbers");
+        }
+        if !(1..=60).contains(&ph.max_per_hour) {
+            return bad("phone.max_per_hour must be between 1 and 60");
+        }
+        if ph.approval_wait_secs > 600
+            || ph.long_job_minutes > 1440
+            || ph.service_down_minutes > 1440
+        {
+            return bad("phone wait times: approvals ≤ 600 s, jobs and services ≤ 1440 min");
+        }
+        let cid = self.google.client_id.trim();
+        if !cid.is_empty()
+            && (cid.len() > 200
+                || !cid.ends_with(".apps.googleusercontent.com")
+                || !cid
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.'))
+        {
+            return bad(
+                "google.client_id must be an OAuth client ID ending in .apps.googleusercontent.com",
+            );
         }
         if !(0.0..=1.0).contains(&self.memory.recall_min_score) {
             return bad("memory.recall_min_score must be between 0 and 1");
@@ -658,6 +800,59 @@ impl Settings {
         }
         if new.memory.auto_capture && !self.memory.auto_capture {
             out.push("Automatically save facts from your chat messages to long-term memory".into());
+        }
+        if new.memory.auto_summarize && !self.memory.auto_summarize {
+            out.push(
+                "Save an AI-written summary of each cleared conversation to long-term memory"
+                    .into(),
+            );
+        }
+        // Phone: message text leaves the machine (Twilio), even in local-only
+        // mode, and a changed recipient would redirect every alert.
+        if new.phone.enabled
+            && (!self.phone.enabled
+                || self.phone.to_number != new.phone.to_number
+                || self.phone.from_number != new.phone.from_number
+                || self.phone.account_sid != new.phone.account_sid)
+        {
+            out.push(format!(
+                "Send texts and calls to {} through Twilio (message text leaves this computer, even in local-only mode)",
+                new.phone.to_number
+            ));
+        }
+        // Google: mail, file contents and queries leave the machine, and a
+        // new client ID changes which Google project receives the consent.
+        let g = (&self.google, &new.google);
+        if g.1.enabled
+            && (!g.0.enabled
+                || (g.1.gmail && !g.0.gmail)
+                || (g.1.drive && !g.0.drive)
+                || (g.1.dev_docs && !g.0.dev_docs)
+                || g.0.client_id != g.1.client_id)
+        {
+            let services: Vec<&str> = [
+                (g.1.gmail, "Gmail"),
+                (g.1.drive, "Google Drive"),
+                (g.1.dev_docs, "Google developer docs"),
+            ]
+            .into_iter()
+            .filter_map(|(on, n)| on.then_some(n))
+            .collect();
+            out.push(format!(
+                "Let the assistant use {} (mail, file contents and searches are sent to Google; needs local-only mode off)",
+                if services.is_empty() {
+                    "Google services".to_string()
+                } else {
+                    services.join(", ")
+                }
+            ));
+        }
+        // Retention deletes data: turning it on or shortening it is confirmed.
+        let (old_days, new_days) = (self.memory.retention_days, new.memory.retention_days);
+        if new_days != 0 && (old_days == 0 || new_days < old_days) {
+            out.push(format!(
+                "Delete archived conversations older than {new_days} days"
+            ));
         }
         if new.memresort.enabled
             && (self.memresort.host != new.memresort.host
@@ -939,6 +1134,76 @@ mod tests {
         new.ai.provider = "openai".into();
         let changes = old.security_changes(&new);
         assert_eq!(changes.len(), 3, "{changes:?}");
+
+        // Memory settings that store or delete data are confirmed too;
+        // keeping transcripts longer is not.
+        let mut new = old.clone();
+        new.memory.auto_summarize = true;
+        new.memory.retention_days = 7;
+        assert_eq!(old.security_changes(&new).len(), 2);
+        let mut old = old;
+        old.memory.retention_days = 90;
+        new = old.clone();
+        new.memory.retention_days = 0;
+        assert!(old.security_changes(&new).is_empty());
+        new.memory.retention_days = 365;
+        assert!(old.security_changes(&new).is_empty());
+        new.memory.retention_days = 30;
+        assert_eq!(old.security_changes(&new).len(), 1);
+    }
+
+    #[test]
+    fn phone_settings_are_validated_and_confirmed() {
+        assert!(is_e164("+13145550100"));
+        assert!(!is_e164("3145550100"));
+        assert!(!is_e164("+0123456789"));
+        assert!(!is_e164("+1314555abcd"));
+        assert!(is_twilio_sid(&format!("AC{}", "0a".repeat(16))));
+        assert!(!is_twilio_sid("AC../../evil"));
+
+        let old = Settings::default();
+        let mut new = old.clone();
+        new.phone.enabled = true;
+        assert!(new.validate().is_err(), "enabled without numbers");
+        new.phone.account_sid = format!("AC{}", "0a".repeat(16));
+        new.phone.from_number = "+13145550100".into();
+        new.phone.to_number = "+13145550101".into();
+        assert!(new.validate().is_ok());
+        assert_eq!(old.security_changes(&new).len(), 1);
+        // Redirecting to another number while enabled is confirmed again.
+        let mut moved = new.clone();
+        moved.phone.to_number = "+13145550199".into();
+        assert_eq!(new.security_changes(&moved).len(), 1);
+        assert!(new.security_changes(&new.clone()).is_empty());
+    }
+
+    #[test]
+    fn google_settings_are_validated_and_confirmed() {
+        let old = Settings::default();
+        assert!(!old.google.enabled, "Google must default off");
+        let mut new = old.clone();
+        new.google.client_id = "evil.example.com".into();
+        assert!(new.validate().is_err());
+        new.google.client_id = "123-abc.apps.googleusercontent.com".into();
+        assert!(new.validate().is_ok());
+        assert!(
+            old.security_changes(&new).is_empty(),
+            "a client ID alone sends nothing"
+        );
+        new.google.enabled = true;
+        new.google.gmail = true;
+        assert_eq!(old.security_changes(&new).len(), 1);
+        // Adding a service or changing the client is confirmed again.
+        let mut more = new.clone();
+        more.google.drive = true;
+        assert_eq!(new.security_changes(&more).len(), 1);
+        let mut other = new.clone();
+        other.google.client_id = "999-x.apps.googleusercontent.com".into();
+        assert_eq!(new.security_changes(&other).len(), 1);
+        // Turning things off is not.
+        let mut less = new.clone();
+        less.google.gmail = false;
+        assert!(new.security_changes(&less).is_empty());
     }
 
     #[test]

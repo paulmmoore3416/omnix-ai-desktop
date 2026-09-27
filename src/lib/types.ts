@@ -87,7 +87,36 @@ export interface Settings {
     adaptive_refresh: boolean;
     low_power_mode: boolean;
   };
+  phone: {
+    enabled: boolean;
+    account_sid: string;
+    from_number: string;
+    to_number: string;
+    max_per_hour: number;
+    approval_wait_secs: number;
+    long_job_minutes: number;
+    alerts_by_severity: boolean;
+    service_down_minutes: number;
+  };
+  google: {
+    enabled: boolean;
+    client_id: string;
+    gmail: boolean;
+    drive: boolean;
+    dev_docs: boolean;
+  };
 }
+
+/** Mirrors `google::GoogleStatus`. */
+export interface GoogleStatus {
+  connected: boolean;
+  has_client_secret: boolean;
+  has_dev_key: boolean;
+  local_only: boolean;
+}
+
+/** Mirrors `phone::PhoneChannel`. */
+export type PhoneChannel = 'sms' | 'call';
 
 /** Mirrors `settings::McpServerConfig`. */
 export interface McpServerConfig {
@@ -116,6 +145,9 @@ export type SecretProvider =
   | 'jira'
   | 'notion'
   | 'kb_core'
+  | 'twilio'
+  | 'google_oauth_client'
+  | 'google_devknowledge'
   | `mcp.${string}.${string}`;
 
 /** Mirrors `security::executor::ExecResult`. */
@@ -413,7 +445,9 @@ export interface Condition {
 export type OpsAction =
   | { kind: 'notify'; title: string; message: string }
   | { kind: 'command'; command: string; cwd?: string | null; approval?: string | null }
-  | { kind: 'ai_report'; prompt: string; save_to_memory: boolean };
+  | { kind: 'ai_report'; prompt: string; save_to_memory: boolean; text_me?: boolean }
+  | { kind: 'text'; message: string }
+  | { kind: 'call'; message: string };
 
 export type Trigger =
   | { kind: 'alert'; alert_id: string }
@@ -436,6 +470,7 @@ export interface Alert {
   condition: Condition;
   enabled: boolean;
   notify: boolean;
+  phone?: PhoneChannel | null;
   cooldown_secs: number;
   state: { firing: boolean; since: string | null; last_fired: string | null; fire_count: number; last_value: number | null };
 }

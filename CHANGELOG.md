@@ -7,6 +7,96 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Workspace notepad.** A resizable Markdown notepad under every Workspace tab: several notes, write / split /
+  preview views (headings, tables, quotes, code, ☐/☑ task lists; sanitized like chat), a formatting toolbar,
+  Ctrl+B/I and Ctrl+Enter to tick tasks, 🧹 Tidy (side task), copy, pin, and send to chat. **📝 Note** on replies,
+  task results and pins appends to the open note. **📋 Clips** keeps the last 25 things copied with OMNIX's Copy
+  buttons, even when the system clipboard is blocked.
+- **Notes in long-term memory.** 🔗 on a note keeps it indexed in kb-core (`notes` knowledge base) and re-syncs it
+  4 s after the last edit; kb-core re-embeds only the changed chunks. New commands `sync_note` / `unsync_note`
+  confine the document name to `omnix-notepad::<id>.md`, so a note can never replace a watched file's document.
+- **Command palette (Ctrl+K).** Views, workspace tabs, actions, notes, saved prompts, slash commands, display
+  settings, plus live semantic search of memory (Enter → chat box, Shift+Enter → notepad; results are plain text).
+- **Display settings (Aa).** Text size S–XL for the Workspace and the conversation, six accent colours or "follow
+  the avatar's mood", avatar size 50–160% (also − / ＋ when you hover the avatar), and a draggable Workspace width.
+- **kb-core MCP server.** `kb-core mcp` exposes `search_memory` and `list_collections` (and `remember` with
+  `--allow-write`) to MCP clients such as Claude Code over stdio. Scope is mandatory (`--collections a,b`, or `--all`
+  with `--exclude`) and enforced by the server, searches don't count as recall, and memories it writes carry the
+  new `mcp` source, which OMNIX labels "saved by an external AI tool, not verified by the user" in recall.
+- **Workspace dock and side tasks.** A panel beside Home and the conversation (🧰 or Ctrl+.) with five tabs.
+  **Live**: CPU, memory, every GPU with VRAM, loaded models (with unload), network, disks and assistant
+  throughput. **Tasks**: *side tasks* run next to the chat (several at once, capped by Settings → Performance →
+  Max Concurrent Tasks, which now does something). They are tool-less (`task_run`: no commands, files, memory or
+  MCP), so they never need approval or wait for the chat. Any context they get is wrapped as untrusted, and
+  `local_only` applies as for chat. A task starting with `/` runs as a normal slash command. **Prompts**: an
+  editable prompt library with `{{input}}` fill-ins, sent to the chat or run as a side task.
+  **Pins**: a pinboard for replies and task results (copy, send to chat, save to memory). **Ops**: firing alerts,
+  upcoming schedules and automations with ▶ Run now, and recent activity.
+- **Situation brief.** One click (Home or the Tasks tab) writes an AI brief from a local snapshot of alerts, load,
+  disks, GPUs, loaded models and upcoming schedules. No chat text or memories go into it.
+- **Chat actions.** Each reply now has Copy, Pin, and one-click side tasks (Summarize, Action items, Explain
+  simply, Draft email, Critique) plus ↻ Ask again. Your own messages have ✎ Edit and ⚡ Side task. While a reply is
+  streaming, the input stays open and anything you send runs as a side task. ↑/↓ in an empty box recalls what
+  you sent.
+- **Google: Gmail, Drive and developer docs** (Settings → Google, off by default, unavailable in local-only mode).
+  Gmail: search, read, and create drafts (OMNIX never sends mail). Drive: search, read Docs/Sheets/Slides and text
+  files, and upload files OMNIX made, optionally converted to Google Sheets or Docs. Developer Knowledge API: search
+  and read Google's official Android, Firebase, Cloud and web documentation. Sign-in uses OAuth with PKCE through
+  your own Google Cloud "Desktop app" client and a one-shot loopback redirect. The client secret and API key are
+  write-only keychain entries, and the refresh token is internal (IPC can't read or set it). Scopes are least
+  privilege, drafts and uploads are confirmed natively, and every call is audited.
+- **Spreadsheets, web pages and files from chat.** Two new agent tools: `write_file` (HTML pages, Markdown, CSV,
+  code) and `create_workbook`, which builds a real Excel `.xlsx` with live formulas (including XLOOKUP, FILTER and
+  LET), number formats, Excel tables with total rows, frozen headers, drop-down and number validation, conditional
+  formats, charts and named ranges. Every write is confirmed natively (the dialog summarises the workbook's sheets,
+  never raw bytes), passes the credential/protected-path policy and is audited (`write_file`, `create_workbook`).
+  The system prompt gains a short playbook for workbooks, self-contained HTML pages and app code.
+- **Security:** archived conversations (and the summaries made from them) are now redacted like the audit log,
+  so an API key pasted into chat is no longer saved to searchable memory. ElevenLabs keys (`sk_…`) join the
+  redaction patterns.
+- **Chat on Home.** The Home screen is now one fluid-glass panel (frosted glass over slowly drifting colour,
+  tinted by the avatar's mood). The avatar sits near the top and the conversation streams in below it, so sending
+  a message no longer jumps to History.
+- **Avatar motion.** New moods **Searching** (teal radar contacts) and **Remembering** (lilac particles spiralling
+  into the core), plus 3D gyroscope rings while thinking, lightning arcs while executing, a radial equalizer while
+  speaking or listening, sparks streaming toward the chat as a reply arrives, confetti on success, a float and a
+  blink. The mood now follows a chat turn live: searching memory, running a tool, replying.
+- Phone heads-ups (Settings → Phone): a text when an approval dialog is still open after `approval_wait_secs`
+  (no details); a text when a model download or a rule's command/report ran at least `long_job_minutes`; alerts
+  without their own phone choice call for critical ones and text for the rest (`alerts_by_severity`); a text when
+  Ollama or kb-core has been down for `service_down_minutes`, and when it is back.
+
+### Changed
+- **Smoother live metrics.** The Live tab reads cheap host and GPU stats every 1.5 s (the full snapshot every
+  10 s), plots the last 2 minutes as monotone curves placed by time that glide continuously, tweens the numbers and
+  eases the bars. All sparklines now draw smooth curves that never overshoot the data.
+- **More legible Workspace.** Text is sized in em from one base size, with a higher-contrast palette (secondary
+  text ≈ 10:1, faint ≈ 7:1 instead of gray-500) and an accent colour used consistently for tabs, focus and
+  progress.
+
+### Added
+- **Texts and calls to your phone** through Twilio (Settings → Phone, off by default). Alerts can text or call you
+  when they fire. Automations and schedules gain **Text my phone** and **Call my phone** actions, and an AI report
+  can be texted (a new quick-add preset sends the weekday morning briefing by text). The agent's schedule and alert
+  tools accept the same options, confirmed natively. Outbound only: the one recipient is your configured number and
+  nothing is accepted by text. The auth token is kept in the keychain, sends are capped per hour
+  (`phone.max_per_hour`) and audited (`phone_sms`, `phone_call`). This is the one documented exception to local-only
+  mode, and turning it on is confirmed natively.
+
+### Changed
+- The four memory settings that had no effect now work. `enable_semantic_search` off makes every search keyword-only;
+  `max_memory_size` refuses new memories when the limit is reached (0 = unlimited, nothing is deleted);
+  `retention_days` deletes archived conversation transcripts older than N days, daily and audited (new default 0 =
+  keep forever; memories and documents are never pruned by age); `auto_summarize` saves a model-written summary of a
+  conversation as a memory when you clear it. Turning on summaries or retention, or shortening retention, needs a
+  native confirmation. Settings → Memory has controls for all four.
+
+### Added
+- Chat commands `/remember <text> [#tag …]` (saves a user memory, audited as `memory_save`), `/recall [query]`
+  (memories only; no query lists the most recent) and `/search <query>` (memories plus indexed documents). They use
+  kb-core; hits below relevance 0.25 are dropped. `/search` no longer returns `not_implemented`.
+
 ## [1.1.0] - 2026-09-26
 
 ### Setup

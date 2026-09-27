@@ -15,6 +15,8 @@ index is always authoritative.
     export [FILE]                   NDJSON backup (stdout by default)
     import FILE                     restore/merge an export
     maintenance                     consolidate duplicates, backfill, compact
+    mcp (--collections a,b | --all [--exclude x]) [--allow-write]
+                                    MCP server on stdio for Claude Code & co.
     migrate-legacy DB               import memories from the kb-core 1.x database
     encrypt                         encrypt the database at rest (service stopped)
     decrypt                         turn an encrypted database back into plain SQLite
@@ -243,6 +245,28 @@ def cmd_maintenance(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_mcp(args: argparse.Namespace) -> int:
+    from .mcp import McpServer, Scope, http_client, run
+
+    split = lambda v: [c.strip().lower() for c in (v or "").split(",") if c.strip()]  # noqa: E731
+    allow, exclude = split(args.collections), split(args.exclude)
+    if bool(allow) == bool(args.all):
+        # Scope is a deliberate choice: never expose every knowledge base by default.
+        print("kb-core mcp: choose --collections a,b or --all (optionally with --exclude x,y)", file=sys.stderr)
+        return 2
+    if exclude and not args.all:
+        print("kb-core mcp: --exclude only applies with --all", file=sys.stderr)
+        return 2
+    scope = Scope(allow=allow, exclude=exclude, everything=args.all, write=args.allow_write)
+    # stdout carries the protocol; everything else goes to stderr.
+    logging.getLogger().handlers[:] = [logging.StreamHandler(sys.stderr)]
+    logging.getLogger("kb_core.mcp").info(
+        "kb-core MCP on stdio: %s, %s", "all" + (f" except {','.join(exclude)}" if exclude else "") if args.all
+        else ",".join(allow), "read-write" if args.allow_write else "read-only")
+    run(McpServer(http_client(args.url, args.token_file), scope))
+    return 0
+
+
 def cmd_migrate_legacy(args: argparse.Namespace) -> int:
     """Import memories from a kb-core 1.x SQLite file (``services/kb-core``).
 
@@ -358,6 +382,12 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("maintenance").set_defaults(fn=cmd_maintenance)
     sub.add_parser("encrypt").set_defaults(fn=cmd_encrypt)
     sub.add_parser("decrypt").set_defaults(fn=cmd_decrypt)
+    s = sub.add_parser("mcp", help="MCP server on stdio")
+    s.add_argument("--collections", help="comma-separated knowledge bases to expose (default = plain memories)")
+    s.add_argument("--all", action="store_true", help="expose every knowledge base (see --exclude)")
+    s.add_argument("--exclude", help="with --all: comma-separated knowledge bases to keep hidden")
+    s.add_argument("--allow-write", action="store_true", help="also offer the remember tool")
+    s.set_defaults(fn=cmd_mcp)
     s = sub.add_parser("migrate-legacy")
     s.add_argument("db")
     s.set_defaults(fn=cmd_migrate_legacy)

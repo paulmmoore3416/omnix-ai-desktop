@@ -794,7 +794,8 @@ class KnowledgeBase:
         importance_ = clean_importance(importance)
         category_ = clean_category(category)
         coll = clean_collection(collection)
-        source = source if source in {"user", "assistant", "extract", "import"} else "user"
+        # "mcp": written by another AI tool through `kb-core mcp --allow-write`.
+        source = source if source in {"user", "assistant", "extract", "import", "mcp"} else "user"
         created = created_at if _parse_ts(created_at) else now_iso()
 
         vecs = self._embed_docs([content])

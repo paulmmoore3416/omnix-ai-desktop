@@ -315,6 +315,8 @@ static REDACTIONS: LazyLock<Vec<(Regex, &'static str)>> =
         [
         (r"sk-ant-[A-Za-z0-9_\-]{8,}", "sk-ant-[REDACTED]"),
         (r"sk-(?:proj-)?[A-Za-z0-9_\-]{16,}", "sk-[REDACTED]"),
+        // ElevenLabs keys: `sk_` followed by hex.
+        (r"\bsk_[A-Za-z0-9]{24,}", "sk_[REDACTED]"),
         (r"xai-[A-Za-z0-9]{16,}", "xai-[REDACTED]"),
         (r"AIza[0-9A-Za-z_\-]{30,}", "AIza[REDACTED]"),
         (r"gh[pousr]_[A-Za-z0-9]{20,}", "gh_[REDACTED]"),
@@ -458,6 +460,14 @@ mod tests {
             ("password=hunter2", "hunter2"),
             ("AKIAABCDEFGHIJKLMNOP", "ABCDEFGHIJKLMNOP"),
             ("xai-abcdefghijklmnopqrstuvwxyz", "abcdefghijklmnopqrst"),
+            (
+                "Elevenlabs: sk_0123456789abcdef0123456789abcdef",
+                "0123456789abcdef",
+            ),
+            (
+                "Drive: AIzaSyA0123456789abcdefghijklmnopqrstu",
+                "0123456789abc",
+            ),
         ];
         for (input, secret) in cases {
             let out = redact(input);

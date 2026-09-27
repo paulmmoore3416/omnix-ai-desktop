@@ -62,7 +62,38 @@ kb-core export ~/omnix-memory.jsonl    # backup (mode 600)
 kb-core import ~/omnix-memory.jsonl
 kb-core maintenance                    # merge duplicates, backfill, VACUUM
 kb-core encrypt / kb-core decrypt      # convert the database (service stopped)
+kb-core mcp --collections default,homelab   # MCP server on stdio (see below)
 ```
+
+## Use it from Claude Code and other MCP clients
+
+`kb-core mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server on stdio, so any MCP client
+(Claude Code, Claude Desktop, IDE agents) can search your memory. Like the other commands it's a client of the
+running service: no new port, one writer.
+
+```bash
+# Claude Code: read-only access to plain memories and the homelab knowledge base
+claude mcp add kb-core -- kb-core mcp --collections default,homelab
+
+# Everything except the knowledge bases that hold sensitive data, and let the agent save facts
+claude mcp add kb-core -- kb-core mcp --all --exclude clinical,conversations --allow-write
+```
+
+| Tool | What it does |
+|---|---|
+| `search_memory` | Hybrid search (`query`, `limit` ≤ 25, `min_score`, optional `collections` within scope). Results are labelled as stored data. |
+| `list_collections` | Knowledge bases in scope, with counts. |
+| `remember` | Only with `--allow-write`. Saves a memory into an in-scope knowledge base with `source: "mcp"` and the `mcp` tag. |
+
+* **Scope is required.** Pass `--collections a,b` (`default` holds plain memories) or `--all` (optionally
+  `--exclude x,y`). The server enforces it on the request and again on every result.
+* **Read-only by default.** `remember` exists only with `--allow-write`.
+* **No side effects on ranking.** MCP searches don't count as recall.
+* **Provenance.** Memories written through MCP show as "🔌 via MCP" in OMNIX, and recall labels them "saved by an
+  external AI tool, not verified by the user".
+* **Privacy.** The client's model sees what the tools return. If it runs in the cloud, those memories leave this
+  machine, so keep knowledge bases with PHI or other sensitive data out of scope.
+* `--url` / `--token-file` (or `KB_CORE_URL` / `KB_CORE_TOKEN_FILE`) point it at a remote or token-protected kb-core.
 
 ## Configuration (`~/.config/omnix/kb-core.env`)
 
@@ -125,7 +156,7 @@ curl -s localhost:8100/search -H 'Content-Type: application/json' \
   wrong (`POST /memories/{id}/feedback`) ranks 0.6× lower per flag, so a better or newer memory wins. Only the user
   restating it clears the flags.
 * **Provenance travels with every hit.** Search results carry `origin` (`user`, `extract`, `assistant`, `import`,
-  `document`) so the caller can label unverified text as such.
+  `mcp`, `document`) so the caller can label unverified text as such.
 * **Standard library only**, apart from optional numpy, optional onnxruntime + tokenizers (NLI judge), optional
   sqlcipher3 + keyring (encryption), and `pdftotext` for PDFs (run with fixed arguments and a timeout). The whole service is about 3,200 lines of Python.
 

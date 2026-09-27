@@ -70,12 +70,13 @@ That's all you need to start. Voice, memory, and cloud models are optional extra
 
 | Area | What it's for |
 |---|---|
-| **Home** | The avatar, quick-action buttons, and live stats |
+| **Home** | The avatar on a frosted-glass panel. Before you chat it shows quick-action buttons and live stats; once you chat, the conversation streams in below the avatar so you can watch it work |
 | **Commands** | A cheat sheet of the `/` commands |
 | **History** | The full conversation, with replies as they stream in |
 | **Settings** | Everything configurable (see [section 8](#8-settings-section-by-section)) |
 | **Knowledge** | Long-term memory: save and search memories, index documents (needs the memory service; see §3) |
 | **System Control** | Live CPU, memory, GPUs, disks and network; processes, services and Docker containers; AI models; alerts, automations and scheduled tasks; cleanup and optimization (see [§14](#14-system-control-watch-automate-and-maintain-your-computer)) |
+| **Workspace** | The panel on the right of Home and History: live metrics, side tasks, prompts, pins and ops (see [§3](#the-workspace-do-more-than-one-thing-at-once)). Hide or show it with 🧰 or **Ctrl + .** |
 | **Input bar** | 🎤 microphone, text box, and Send |
 
 OMNIX also sits in your **system tray**. Closing the window hides it there instead of quitting, so it's always one click away.
@@ -86,15 +87,102 @@ OMNIX also sits in your **system tray**. Closing the window hides it there inste
 
 Type in the box at the bottom and press **Enter** (or click **Send**).
 
-- Replies **stream in live** on the History screen.
+- Replies **stream in live** right where you typed: on Home they appear under the avatar, which reacts as OMNIX
+  searches memory, runs tools and replies. The History screen shows the same conversation.
 - Ask naturally: *"What's using the most memory right now?"* or *"Summarize the file ~/notes/meeting.md"*.
 - OMNIX can **use tools** to answer: list folders, read files, run safe commands. Each tool it uses shows as a
   small note under the reply (🔧 requested, ✓ done, ✗ failed).
 - Click **⏹ Stop** to cut a long answer short.
-- Click **🧹 Clear** on the History screen to start a fresh conversation.
+- Click **🧹 Clear** (on Home or History) to start a fresh conversation.
 - If voice is set up, click **🔊 Read aloud** under any reply to hear it.
+- Under each reply: **📋 Copy**, **📌 Pin** (to the Workspace pinboard), one-click side tasks (**📝 Summarize**,
+  **✅ Action items**, **💡 Explain simply**, **✉️ Draft email**, **🔍 Critique**) and **↻ Ask again** on the
+  latest one. Under your own messages: **✎ Edit** (puts it back in the box) and **⚡ Side task**.
+- Press **↑** in an empty box to bring back what you sent before (**↓** goes forward).
+
+### The Workspace: do more than one thing at once
+
+The Workspace panel sits to the right of Home and History. Click **🧰** in the input bar or press **Ctrl + .**
+to show or hide it. It has five tabs:
+
+| Tab | What it does |
+|---|---|
+| **📈 Live** | CPU and memory (last 2 minutes, refreshed every 1.5 s; charts glide and numbers ease instead of jumping), each GPU with load, VRAM and temperature, the AI models loaded right now (⏏ unloads one to free VRAM), network, fullest disks, and how fast the assistant is answering |
+| **⚡ Tasks** | **Side tasks** run next to the chat. Type a request and press **Run side task** (or Ctrl+Enter). Several can run at once. Each card streams its answer and has Stop, Copy, Pin, **💬 To chat** (puts the result in your chat box) and Again. **📋 Brief** writes a situation brief (below). Start a task with `/` to run a command such as `/monitor` or `/recall` |
+| **📚 Prompts** | Your prompt library. Type a fill-in in the top box, then click **⚡ Task** or **💬 Chat** on a prompt. `{{input}}` in a prompt is replaced by the fill-in. Add, edit or delete prompts. **Reset to defaults** restores the built-in set (shift huddle agenda, incident summary, SOP outline, workbook, rewrite, explain a command) |
+| **📌 Pins** | Replies and task results you pinned. Copy them, send them back to the chat, add them to the notepad (**📝 Note**), or **🧠 Remember** one to save it to long-term memory. Pins stay on this computer |
+| **🛰️ Ops** | Alerts that are firing, what's scheduled next and your automations, each with **▶ Run now**, plus recent activity |
+
+**Notepad.** Under every tab sits a Markdown notepad. Drag its top edge to make it taller or shorter
+(double-click the edge to reset, or focus it and use ↑/↓), or click **▸ Notepad** to fold it away. Pick a note from
+the list, **＋** starts a new one and **🗑** deletes one (click twice). Three views: **✎** write, **◫** write with a
+live preview underneath, **👁** preview only. The preview renders headings, bold, lists, tables, quotes, code and task
+lists (☐/☑). The toolbar adds bold, italic, a heading, bullets, a task, and code; **Ctrl+B / Ctrl+I** work too, and
+**Ctrl+Enter** ticks the task on the current line. Then: **⧉** copy, **💬** put the note in the chat box, **🧹** tidy
+it into clean Markdown (a side task; the result appears in Tasks), and **📌** pin it. Send text *to* the notepad
+with **📝 Note** on any reply, task result or pin.
+
+- **📋 Clips** (top right of the notepad) keeps the last 25 things you copied with OMNIX's 📋 buttons, newest first,
+  even when the system clipboard is blocked. Click one to add it to the note, or send it to the chat. **📥 Paste
+  from clipboard** adds what's on the system clipboard.
+- **🔗 Keep in memory** indexes the note in long-term memory (the **notes** knowledge base in Knowledge →
+  Documents) so OMNIX can recall it in chat, and re-syncs it a few seconds after you stop typing. Only the changed
+  parts are re-embedded. Click **🔗** again to remove it from memory (the note itself stays). The status line shows
+  when it last synced.
+- Notes, clips and the notepad size are kept on this computer, like pins. Clear clips with **Clear clips**.
+
+**Display (Aa).** The **Aa** button in the Workspace header sets the **text size** (S, M, L, XL, for the Workspace
+and the conversation), the **accent colour** (six colours, or the rainbow swatch to follow the avatar's mood), and
+the **avatar size**. Drag the Workspace's left edge to make it wider or narrower (or focus the edge and use ←/→).
+These settings are remembered.
+
+**While OMNIX is replying, keep typing.** Anything you send before the reply finishes runs as a side task instead
+of waiting.
+
+**What side tasks can't do.** A side task only writes text. It has no tools, so it can't run commands, read or
+write files, search memory or use Gmail/Drive. That's why it never needs an approval and never waits on the main
+chat. For anything that needs tools, ask in the main chat. Settings → Performance → **Max Concurrent Tasks** sets
+how many can run at once (default 5). With a local model they share the same GPU, so with several running each
+one is slower.
+
+**Situation brief.** Click **📋 Situation brief** on Home (or **📋 Brief** in Tasks). OMNIX takes a snapshot of
+alerts, CPU, memory, disks, GPUs, loaded models, recent failures and upcoming schedules, and writes a short status
+(OK / Watch / Act) with suggested actions. Only those metrics go into it, never your chat or memories.
+
+### Command palette (Ctrl + K)
+
+Press **Ctrl + K** anywhere (or click **🔎 Search** at the top of the sidebar) and start typing. One box reaches:
+
+- **Actions**: situation brief, new note, clear the conversation, show/hide the Workspace
+- **Go to**: every view, plus voice settings
+- **Workspace**: jump straight to Live, Tasks, Prompts, Pins or Ops
+- **Notes**: open any note (🔗 marks the ones kept in memory)
+- **Prompts** and **Commands**: put a saved prompt or a `/command` in the chat box
+- **Display**: text size and avatar size
+- **Memory**: after three letters, your long-term memory is searched by meaning. **Enter** puts a result in the
+  chat box, **Shift + Enter** adds it to the notepad
+- **Ask**: send what you typed to the chat, or run it as a side task
+
+Use **↑ / ↓** to move and **Esc** to close.
 
 ---
+
+### Spreadsheets, web pages and other files
+
+Ask OMNIX to *make* something and it writes the file for you:
+
+- *"Build me an Excel workbook that tracks overtime by unit, with a chart and a drop-down for the unit."* It creates
+  a real `.xlsx` with working formulas, a formatted table, drop-downs, highlighting and charts.
+- *"Make an interactive HTML page where I can filter and sort this list."* It writes one self-contained `.html`
+  file that opens offline in any browser.
+- Markdown notes, CSV exports, scripts and app code work the same way.
+
+Every file write opens an approval dialog showing the path and a preview (for a workbook: its sheets, row counts
+and charts). Nothing is written until you click **Write**. Files go to `~/Documents` unless you name a folder
+(the folder must exist). Credential locations and OMNIX's own settings and audit files can't be written.
+
+Excel calculates the formulas when it opens the file. In LibreOffice, press **Ctrl+Shift+F9** once if formula
+cells show 0, or set Tools → Options → LibreOffice Calc → Formula → *Recalculation on file load* to **Always**.
 
 ### Long-term memory
 
@@ -194,9 +282,16 @@ Start a message with `/` to run a command directly. Type `/` and suggestions pop
 | `/file read` | Shows a text file | `/file read ~/notes/todo.md` |
 | `/file list` | Lists a folder | `/file list ~/Documents` |
 | `/file write` | Creates or replaces a file (asks first) | `/file write ~/notes/idea.md Buy milk` |
+| `/remember` | Saves a fact to long-term memory; `#words` at the end become tags | `/remember I prefer metric units #prefs` |
+| `/recall` | Finds your memories by meaning; on its own, lists the most recent | `/recall units` |
+| `/search` | Searches everything OMNIX knows: memories plus indexed notes, documents and watched folders | `/search zfs backup` |
 
 The Home screen buttons are shortcuts: **📊 System Status** runs `/monitor`, **📁 List Files** lists the current folder,
 and **❓ Help** asks OMNIX what it can do.
+
+`/remember`, `/recall` and `/search` need the memory service (kb-core, installed by setup). Results show how
+relevant each one is; weak matches are left out. Everything you save is listed, editable and deletable in the
+**Knowledge** view.
 
 ---
 
@@ -220,9 +315,12 @@ About the approval pop-up:
 
 ## 7. Meet the avatar
 
-The Home screen shows OMNIX as a holographic core: a glowing reactor surrounded by rotating rings, a radar sweep,
-and a waveform ring that moves with your voice while you talk and with OMNIX's voice while it replies. The core
-follows your mouse. **Colour tells you what's going on**, in three layers:
+The Home screen shows OMNIX as a frameless holographic core near the top of the chat panel: a glowing reactor
+surrounded by rotating rings, a radar sweep, and a waveform ring that moves with your voice while you talk and with
+OMNIX's voice while it replies. The core follows your mouse, floats gently, and blinks now and then. The panel
+behind it is frosted glass over slowly moving colour, tinted to match the current mood. During a chat the mood
+changes as the work does: violet while thinking, teal while searching memory, amber while a tool runs, aqua
+while the reply streams in (sparks flow from the core down to the text). **Colour tells you what's going on**, in three layers:
 
 - **Mood** colours the core and inner rings: what OMNIX is doing right now.
 - **Condition** colours the outer halo and shows a ⚠ banner: a problem that needs your attention.
@@ -233,20 +331,26 @@ A mood and a condition can show at the same time. For example, an amber core ins
 
 Click **KEY** in the avatar's corner to open the colour key in the app. It highlights whatever is showing right now.
 
+**Make it bigger or smaller.** Hover the avatar and use **−** / **＋** in the top-right corner of the panel (50% to
+160%; click the percentage to reset), or use **Aa → Avatar** in the Workspace, or **Ctrl+K → Bigger avatar**. The
+size is remembered. During a conversation the avatar shrinks a little to make room, relative to your size.
+
 ### Mood (core and inner rings)
 
 | Colour | Mood | It means | What it looks like |
 |---|---|---|---|
 | 🔵 Cyan `#29d8ff` | Standby | Ready and waiting | Slow ring drift, calm core breathing, an occasional scan |
-| 🔵 Blue `#4f8bff` | Listening | Recording your voice | Waveform ring jumps with your mic level |
-| 🟣 Violet `#8b7bff` | Thinking | Working out an answer | Inner rings speed up, data points orbit the core |
+| 🔵 Blue `#4f8bff` | Listening | Recording your voice | Waveform ring and equalizer jump with your mic level; particles drift into the core |
+| 🟣 Violet `#8b7bff` | Thinking | Working out an answer | Gyroscope rings turn in 3D, linked data points orbit the core |
 | 🟣 Purple `#c36bff` | Processing | Transcribing speech or computing | Counter-rotating rings, fast radar sweep |
-| 🟠 Amber `#ffb02e` | Executing | Running a command or tool | Outer ring steps round like a gear |
-| 🟢 Aqua `#4ff5d2` | Speaking | Replying to you | Waveform ring pulses with the voice |
+| 🟢 Teal `#00c2a8` | Searching | Looking through memory, files or the system (`/search`, `/recall`, `/monitor`, `/file read`/`list`, or recalling memories for a reply) | Wide radar sweep that lights up contacts as it passes |
+| 🪻 Lilac `#f0a8ff` | Remembering | Saving to long-term memory (`/remember`) | Particles spiral into the core, which flashes as each one lands |
+| 🟠 Amber `#ffb02e` | Executing | Running a command or tool | Outer ring steps round like a gear, arcs crackle from the core |
+| 🟢 Aqua `#4ff5d2` | Speaking | Replying to you (streaming text or reading aloud) | Equalizer pulses round the core; sparks stream toward the chat |
 | ⚪ Ice white `#d6ecff` | Focused | Concentrating on a task | Rings slow and tighten |
-| 🟡 Gold `#ffd84a` | Happy | Task finished, all good | Warm glow, gentle spin-up |
-| 🩷 Pink `#ff5ea8` | Excited | Something went really well | Fast spin with bursts of sparks |
-| 🟢 Green `#3dff95` | Success | Your request completed | Double shockwave ring |
+| 🟡 Gold `#ffd84a` | Happy | Task finished, all good | Warm glow, happy bounce, a puff of sparks |
+| 🩷 Pink `#ff5ea8` | Excited | A long request (over 8 s) finished cleanly | Fast spin with bursts of sparks |
+| 🟢 Green `#3dff95` | Success | Your request completed | Double shockwave ring and a burst of confetti |
 | 🩶 Slate `#9fb4c8` | Confused | Didn't catch that, or the input was unclear | Rings wobble back and forth |
 | 🔴 Red `#ff3d4f` | Error | The request failed (details in the pop-up) | Glitch shake and flicker |
 | 🔵 Navy `#3553b8` | Dormant | Quiet for 75 seconds | Dims and slows right down. Move the mouse or click the core to wake it |
@@ -300,7 +404,9 @@ admin commands, adding a new server) asks you to confirm in a pop-up.
 | **MemResort** | Connect the optional MemResort memory service |
 | **MCP Servers** | Add extra tools for the AI through the Model Context Protocol. Each tool call is checked and logged |
 | **Voice** | Speech-to-text server, Whisper model, language, Piper read-aloud, and **Test microphone** |
-| **Memory** | The memory service URL, **Recall automatically** (on), how many entries to recall and how relevant they must be, **Learn from conversations** (off; asks you to confirm when you turn it on), and **Archive conversations** (on: a searchable copy of your chats) |
+| **Memory** | The memory service URL, **Recall automatically** (on), how many entries to recall and how relevant they must be, **Learn from conversations** (off; asks you to confirm when you turn it on), **Archive conversations** (on: a searchable copy of your chats), **Summarize conversations** (off: when you clear a chat, save a short summary as a memory), **Semantic search** (on; off = match words only), **Memory limit** (1000; when full, new memories are refused, nothing is deleted for you) and **Keep archived conversations** (0 = forever; older chat transcripts are deleted daily) |
+| **Phone** | Let OMNIX **text or call your phone** through Twilio: your number, the Twilio number and account, the auth token (kept in the keychain) and a per-hour limit. **Test text** and **Test call** check it. Off by default; turning it on asks you to confirm |
+| **Google** | Connect **Gmail** (search, read, save drafts; OMNIX never sends mail), **Google Drive** (search, read, upload what OMNIX made) and **Google developer docs**. Needs your own Google Cloud OAuth client (the tab lists the steps) and local-only mode off. Off by default; turning it on asks you to confirm |
 | **Security** | Local-only mode, admin commands, autonomous mode, blocked commands, audit-log verification |
 | **Performance** | Performance-related options |
 
@@ -341,6 +447,12 @@ screen shows only "Key saved ✓", with no way to read the key back out.
 | **Ctrl + Space** (hold) | Push-to-talk from anywhere |
 | **Enter / Space** on the 🎤 button | Start / stop recording |
 | **Esc** | Cancel a recording · close command suggestions |
+| **Ctrl + K** | Command palette: go anywhere, run actions, open notes, use prompts, search memory |
+| **Ctrl + .** | Show / hide the Workspace |
+| **↑ / ↓** (empty box) | Previous / next message you sent |
+| **Ctrl + Enter** (Tasks box) | Run a side task |
+| **Ctrl + Enter** (notepad) | Tick / untick the task on the current line |
+| **Ctrl + B / Ctrl + I** (notepad) | Bold / italic |
 | **/** | Start a command (shows suggestions) |
 
 ---
@@ -475,6 +587,12 @@ automated *command* that changes anything needs your approval once, when you cre
 that command and nothing else. If the command is edited, even outside OMNIX, it stops running until you approve it
 again. Admin (sudo) commands never run unattended. Every run is recorded in the audit log.
 
+**Can other AI tools use my memory?**
+Only if you set it up. `kb-core mcp` lets an MCP client such as Claude Code or Claude Desktop search your memory,
+and you must name which knowledge bases it may see. It's read-only unless you add `--allow-write`. The client's
+model sees what it finds, so if that model runs in the cloud, keep sensitive knowledge bases (patient notes, anything
+with PHI) out of scope. See the kb-core README.
+
 **Where's the record of what OMNIX did?**
 In the audit log. **Settings → Security → 🔏 Verify audit log** checks that nobody has edited it.
 
@@ -505,6 +623,24 @@ audit log.
 containers, loaded models, firing alerts) and writes a short summary. It can't run anything. Tick *Save each report
 to long-term memory* to be able to ask later *"what did last week's reports say about the disk?"*
 
+**Your phone.** Once Settings → Phone is set up, an alert can also **text or call you** when it fires (pick it
+under *Phone* when you create the alert). Automations and schedules get two more actions, **Text my phone** and
+**Call my phone**, and an AI report can be texted to you (**Quick add → …and text it to my phone** gives you the
+morning briefing by text). A call reads the message aloud twice. OMNIX only ever contacts your own number and never
+takes instructions by text. Messages go through Twilio, so keep sensitive details out of them. The per-hour limit
+stops a flapping alert from running up a bill.
+
+**Heads-ups** (Settings → Phone, all on once the phone is on):
+- **Critical alerts call, the rest text.** For alerts where you didn't pick a phone option, OMNIX calls you for
+  temperature and disk alerts and texts you for everything else.
+- **Approval waiting.** If an approval pop-up is still open after a minute, you get a text (without details) so you
+  can get back to the desk. Pop-ups close after 60 seconds by default, so raise **Security → confirmation timeout**
+  (up to 10 minutes) to make this useful.
+- **Long jobs.** A model download or an automation/schedule command or report that took 5 minutes or more texts
+  you when it ends, with the result.
+- **Service down.** If Ollama or the memory service has been unreachable for 10 minutes, you get one text, and
+  another when it's back.
+
 **Ask in chat.** You don't need the tabs for most of this. Try:
 
 - *"How are my GPUs doing?"* or *"What's using the most memory?"*
@@ -512,6 +648,7 @@ to long-term memory* to be able to ask later *"what did last week's reports say 
 - *"Show me the last logs of ollama.service"*
 - *"Every weekday at 8, give me a health report"* (the assistant proposes a schedule; you confirm it)
 - *"Warn me if the disk goes over 90%"*
+- *"Text me if the GPU goes over 85 °C"* or *"Call me if Ollama goes down"* (needs Settings → Phone)
 
 Notifications from alerts and automations appear on your desktop and inside OMNIX, and the avatar flashes.
 

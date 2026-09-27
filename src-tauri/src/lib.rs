@@ -14,15 +14,18 @@ pub mod ai;
 pub mod commands;
 pub mod desktop;
 pub mod error;
+pub mod google;
 pub mod mcp;
 pub mod memory;
 pub mod observability;
 pub mod ops;
+pub mod phone;
 pub mod security;
 pub mod settings;
 pub mod state;
 pub mod system;
 pub mod voice;
+pub mod workbook;
 
 use tauri::Manager;
 
@@ -104,6 +107,21 @@ pub fn run() {
                     tracing::warn!(error = %e, "audit shipping not enabled");
                 }
             });
+            // `memory.retention_days`: prune old archived conversations
+            // shortly after start, then once a day.
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+                loop {
+                    let state = handle.state::<state::AppState>();
+                    match memory::prune_conversations(&state).await {
+                        Ok(0) => {}
+                        Ok(n) => tracing::info!(removed = n, "pruned archived conversations"),
+                        Err(e) => tracing::debug!(error = %e, "conversation retention skipped"),
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(24 * 3600)).await;
+                }
+            });
             // The updater plugin is intentionally NOT registered until release
             // signing is configured (see docs/ARCHITECTURE.md).
 
@@ -139,6 +157,14 @@ pub fn run() {
             commands::chat::chat_send,
             commands::chat::chat_cancel,
             commands::chat::chat_reset,
+            // Side tasks (tool-less, parallel to chat)
+            commands::tasks::task_run,
+            commands::tasks::task_cancel,
+            // Phone
+            commands::phone::phone_test,
+            commands::google::google_status,
+            commands::google::google_connect,
+            commands::google::google_disconnect,
             // Execution (the only shell entry point) and audit
             commands::exec::request_execution,
             commands::exec::verify_audit_log,
@@ -170,6 +196,8 @@ pub fn run() {
             commands::knowledge::sync_knowledge_folders,
             commands::knowledge::semantic_search,
             commands::knowledge::index_document,
+            commands::knowledge::sync_note,
+            commands::knowledge::unsync_note,
             commands::knowledge::create_knowledge_base,
             commands::knowledge::list_knowledge_bases,
             commands::knowledge::delete_knowledge_base,

@@ -25,6 +25,9 @@ pub struct AlertInput {
     /// Desktop notification (default on).
     #[serde(default)]
     pub notify: Option<bool>,
+    /// Also text or call the owner's phone.
+    #[serde(default)]
+    pub phone: Option<crate::phone::PhoneChannel>,
     /// Cooldown seconds.
     #[serde(default)]
     pub cooldown_secs: Option<u64>,
@@ -163,6 +166,11 @@ fn check_action_shape(a: &Action) -> AppResult<()> {
         Action::AiReport { prompt, .. } => {
             if prompt.trim().is_empty() || prompt.chars().count() > 2000 {
                 return Err(bad("report prompt must be 1–2000 characters"));
+            }
+        }
+        Action::Text { message } | Action::Call { message } => {
+            if message.trim().is_empty() || message.chars().count() > 500 {
+                return Err(bad("a text or call needs a message of 1–500 characters"));
             }
         }
     }
@@ -362,10 +370,20 @@ pub async fn create_alert<R: Runtime>(
         condition: input.condition,
         enabled: true,
         notify: input.notify.unwrap_or(true),
+        phone: input.phone,
         cooldown_secs: input.cooldown_secs.unwrap_or(900).clamp(0, 86_400),
         state: AlertState::default(),
     };
-    let desc = format!("Alert “{}”: {}", alert.name, alert.condition.describe());
+    let desc = format!(
+        "Alert “{}”: {}{}",
+        alert.name,
+        alert.condition.describe(),
+        match alert.phone {
+            Some(crate::phone::PhoneChannel::Sms) => " (and text your phone)",
+            Some(crate::phone::PhoneChannel::Call) => " (and call your phone)",
+            None => "",
+        }
+    );
     if source == Source::LlmTool {
         confirm_llm_rule(app, state, "alert", &desc).await?;
     }

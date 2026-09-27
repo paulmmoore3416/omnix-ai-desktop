@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy, untrack } from 'svelte';
   import { call, errorMessage } from '$lib/api';
-  import type { Settings, VerifyReport } from '$lib/types';
+  import type { GoogleStatus, Settings, VerifyReport } from '$lib/types';
   import { startRecording, transcribe } from '$lib/voice';
   import SecretField from './SecretField.svelte';
   import McpServers from './McpServers.svelte';
@@ -25,6 +25,8 @@
     { id: 'integrations', label: 'MCP Servers', icon: '🔌' },
     { id: 'voice', label: 'Voice', icon: '🎤' },
     { id: 'memory', label: 'Memory', icon: '🧠' },
+    { id: 'phone', label: 'Phone', icon: '📱' },
+    { id: 'google', label: 'Google', icon: '🔗' },
     { id: 'security', label: 'Security', icon: '🔒' },
     { id: 'performance', label: 'Performance', icon: '⚡' }
   ];
@@ -122,6 +124,58 @@
       flash('error', `Not saved: ${errorMessage(e)}`, 8000);
     } finally {
       isSaving = false;
+    }
+  }
+
+  // Sends a fixed test text or call to the *saved* number.
+  async function testPhone(channel: 'sms' | 'call') {
+    testingConnection = `phone-${channel}`;
+    try {
+      flash('success', await call<string>('phone_test', { channel }));
+    } catch (e) {
+      flash('error', errorMessage(e), 8000);
+    } finally {
+      testingConnection = null;
+    }
+  }
+
+  let google = $state<GoogleStatus | null>(null);
+
+  async function refreshGoogle() {
+    try {
+      google = await call<GoogleStatus>('google_status');
+    } catch (e) {
+      flash('error', errorMessage(e), 8000);
+    }
+  }
+
+  $effect(() => {
+    if (activeTab === 'google') untrack(refreshGoogle);
+  });
+
+  // Opens Google's consent page in the browser; uses the *saved* settings.
+  async function connectGoogle() {
+    testingConnection = 'google';
+    flash('success', 'Finish signing in in your browser (up to 5 minutes)…', 300000);
+    try {
+      flash('success', await call<string>('google_connect'));
+    } catch (e) {
+      flash('error', errorMessage(e), 10000);
+    } finally {
+      testingConnection = null;
+      await refreshGoogle();
+    }
+  }
+
+  async function disconnectGoogle() {
+    testingConnection = 'google';
+    try {
+      google = await call<GoogleStatus>('google_disconnect');
+      flash('success', 'Disconnected from Google.');
+    } catch (e) {
+      flash('error', errorMessage(e), 8000);
+    } finally {
+      testingConnection = null;
     }
   }
 
@@ -540,10 +594,155 @@
                 <span class="text-sm font-medium">Archive conversations <span class="block text-xs text-gray-400 font-normal">Keep a searchable copy of your chats (your messages and OMNIX's replies, never tool output) in the "conversations" knowledge base, so you can ask "what did we discuss about …". Not used for automatic recall.</span></span>
                 <input type="checkbox" bind:checked={settings.memory.archive_conversations} disabled={!settings.memory.backend_url} class="w-5 h-5" />
               </label>
-              <div>
-                <label for="retention" class="block text-sm font-medium mb-2">Retention Period (days) <span class="text-xs text-yellow-300">planned</span></label>
-                <input id="retention" type="number" bind:value={settings.memory.retention_days} disabled class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 opacity-50" />
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Summarize conversations <span class="block text-xs text-gray-400 font-normal">When you clear a conversation (two or more messages), the chat model writes a short summary and saves it as a memory, so later chats can recall it. Marked as saved by the assistant.</span></span>
+                <input type="checkbox" bind:checked={settings.memory.auto_summarize} disabled={!settings.memory.backend_url} class="w-5 h-5" />
+              </label>
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Semantic search <span class="block text-xs text-gray-400 font-normal">Find memories and notes by meaning as well as by words. Off: keyword matching only (no embedding model needed).</span></span>
+                <input type="checkbox" bind:checked={settings.memory.enable_semantic_search} disabled={!settings.memory.backend_url} class="w-5 h-5" />
+              </label>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label for="max-memories" class="block text-sm font-medium mb-2">Memory limit <span class="text-xs text-gray-400 font-normal">(0 = unlimited)</span></label>
+                  <input id="max-memories" type="number" min="0" max="1000000" bind:value={settings.memory.max_memory_size} disabled={!settings.memory.backend_url} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 disabled:opacity-50" />
+                  <p class="text-xs text-gray-400 mt-1">When full, new memories are refused. Nothing is deleted for you.</p>
+                </div>
+                <div>
+                  <label for="retention" class="block text-sm font-medium mb-2">Keep archived conversations (days) <span class="text-xs text-gray-400 font-normal">(0 = forever)</span></label>
+                  <input id="retention" type="number" min="0" max="36500" bind:value={settings.memory.retention_days} disabled={!settings.memory.backend_url} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 disabled:opacity-50" />
+                  <p class="text-xs text-gray-400 mt-1">Older chat transcripts are deleted daily. Memories and documents are never removed by age.</p>
+                </div>
               </div>
+            </div>
+          </div>
+
+        {:else if activeTab === 'phone'}
+          <div class="space-y-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-xl font-bold text-cosmic-cyan">Phone: texts and calls</h3>
+              <div class="flex gap-2">
+                <button onclick={() => testPhone('sms')} disabled={testingConnection !== null || !settings.phone.enabled} class="glass-panel px-4 py-2 hover:bg-white/10 transition-all text-sm disabled:opacity-50">
+                  {testingConnection === 'phone-sms' ? '⏳ Sending...' : '💬 Test text'}
+                </button>
+                <button onclick={() => testPhone('call')} disabled={testingConnection !== null || !settings.phone.enabled} class="glass-panel px-4 py-2 hover:bg-white/10 transition-all text-sm disabled:opacity-50">
+                  {testingConnection === 'phone-call' ? '⏳ Calling...' : '📞 Test call'}
+                </button>
+              </div>
+            </div>
+            <div class="glass-panel p-4 bg-white/5 text-sm text-gray-300 space-y-2">
+              <p>OMNIX can text or call <strong>your</strong> phone: alerts, scheduled reports and "text me" / "call me" actions in System Control → Rules. It only ever contacts the number below and never takes instructions by text or phone.</p>
+              <p class="text-yellow-300">This uses Twilio, a paid cloud service. Message text leaves this computer, even in local-only mode, so keep sensitive details out of messages. Enabling it asks you to confirm. Save settings before testing.</p>
+            </div>
+            <div class="space-y-4">
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Allow texts and calls</span>
+                <input type="checkbox" bind:checked={settings.phone.enabled} class="w-5 h-5" />
+              </label>
+              <div>
+                <label for="phone-to" class="block text-sm font-medium mb-2">Your phone number</label>
+                <input id="phone-to" type="tel" bind:value={settings.phone.to_number} placeholder="+15551234567" class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+              </div>
+              <div>
+                <label for="phone-from" class="block text-sm font-medium mb-2">Twilio number (sender)</label>
+                <input id="phone-from" type="tel" bind:value={settings.phone.from_number} placeholder="+15557654321" class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+              </div>
+              <div>
+                <label for="phone-sid" class="block text-sm font-medium mb-2">Twilio account SID</label>
+                <input id="phone-sid" type="text" bind:value={settings.phone.account_sid} placeholder="AC…" class="w-full font-mono bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+              </div>
+              <SecretField provider="twilio" label="Twilio auth token (stored in the OS keychain)" placeholder="auth token" />
+              <div>
+                <label for="phone-max" class="block text-sm font-medium mb-2">Most texts + calls per hour</label>
+                <input id="phone-max" type="number" min="1" max="60" bind:value={settings.phone.max_per_hour} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+                <p class="text-xs text-gray-400 mt-1">Stops a flapping alert from running up a bill. Numbers use international format: + and country code.</p>
+              </div>
+              <h4 class="text-sm font-bold text-cosmic-cyan pt-2">Heads-ups</h4>
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Call for critical alerts, text for the rest <span class="block text-xs text-gray-400 font-normal">Applies to alerts where you didn't choose a phone option. Critical: temperature and disk.</span></span>
+                <input type="checkbox" bind:checked={settings.phone.alerts_by_severity} class="w-5 h-5" />
+              </label>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label for="phone-approval" class="block text-sm font-medium mb-2">Approval waiting (seconds)</label>
+                  <input id="phone-approval" type="number" min="0" max="600" bind:value={settings.phone.approval_wait_secs} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+                  {#if settings.phone.approval_wait_secs > 0 && settings.phone.approval_wait_secs >= settings.security.confirmation_timeout_secs}
+                    <p class="text-xs text-yellow-300 mt-1">Approval pop-ups close after {settings.security.confirmation_timeout_secs} s, so this never fires. Raise the timeout in Security (up to 600 s).</p>
+                  {:else}
+                    <p class="text-xs text-gray-400 mt-1">Text me when an approval pop-up is still open this long (0 = off). No details are sent.</p>
+                  {/if}
+                </div>
+                <div>
+                  <label for="phone-jobs" class="block text-sm font-medium mb-2">Long jobs (minutes)</label>
+                  <input id="phone-jobs" type="number" min="0" max="1440" bind:value={settings.phone.long_job_minutes} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+                  <p class="text-xs text-gray-400 mt-1">Text me when a model download, or a rule's command or report, took at least this long (0 = off).</p>
+                </div>
+                <div>
+                  <label for="phone-down" class="block text-sm font-medium mb-2">Service down (minutes)</label>
+                  <input id="phone-down" type="number" min="0" max="1440" bind:value={settings.phone.service_down_minutes} class="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+                  <p class="text-xs text-gray-400 mt-1">Text me when Ollama or the memory service has been unreachable this long, and when it's back (0 = off).</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        {:else if activeTab === 'google'}
+          <div class="space-y-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-xl font-bold text-cosmic-cyan">Google: Gmail, Drive and developer docs</h3>
+              {#if google?.connected}
+                <button onclick={disconnectGoogle} disabled={testingConnection !== null} class="glass-panel px-4 py-2 hover:bg-white/10 transition-all text-sm disabled:opacity-50">🔌 Disconnect</button>
+              {:else}
+                <button onclick={connectGoogle} disabled={testingConnection !== null || !settings.google.enabled || !(settings.google.gmail || settings.google.drive) || !google?.has_client_secret || !!google?.local_only} class="glass-panel px-4 py-2 hover:bg-white/10 transition-all text-sm disabled:opacity-50">
+                  {testingConnection === 'google' ? '⏳ Waiting for browser…' : '🔑 Connect Google account'}
+                </button>
+              {/if}
+            </div>
+            <div class="glass-panel p-4 bg-white/5 text-sm text-gray-300 space-y-2">
+              <p>Let OMNIX search and read your Gmail (and save drafts; it never sends), search, read and upload to Google Drive, and look things up in Google's official developer documentation.</p>
+              <p class="text-yellow-300">These are cloud services: the mail, files and searches involved go to Google, and to your AI model. They only work with local-only mode <strong>off</strong>. Don't use them for patient information unless your organization's policy and agreements with Google allow it. Enabling them asks you to confirm.</p>
+              <p>
+                Status:
+                {#if !google}checking…
+                {:else if google.local_only}<span class="text-yellow-300">blocked by local-only mode (Settings → Security)</span>
+                {:else if google.connected}<span class="text-green-400">account connected</span>
+                {:else}not connected{/if}
+              </p>
+            </div>
+            <div class="space-y-4">
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Use Google services</span>
+                <input type="checkbox" bind:checked={settings.google.enabled} class="w-5 h-5" />
+              </label>
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Gmail <span class="block text-xs text-gray-400 font-normal">Search, read, create drafts (read-only + compose access)</span></span>
+                <input type="checkbox" bind:checked={settings.google.gmail} class="w-5 h-5" />
+              </label>
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Google Drive <span class="block text-xs text-gray-400 font-normal">Search and read files; upload files OMNIX made (can only change files it uploaded)</span></span>
+                <input type="checkbox" bind:checked={settings.google.drive} class="w-5 h-5" />
+              </label>
+              <label class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium">Developer docs <span class="block text-xs text-gray-400 font-normal">Search Google's Android, Firebase, Cloud and web documentation (Developer Knowledge API; only your search text is sent)</span></span>
+                <input type="checkbox" bind:checked={settings.google.dev_docs} class="w-5 h-5" />
+              </label>
+              <div>
+                <label for="google-client" class="block text-sm font-medium mb-2">OAuth client ID (for Gmail and Drive)</label>
+                <input id="google-client" type="text" bind:value={settings.google.client_id} placeholder="1234-abc.apps.googleusercontent.com" class="w-full font-mono bg-white/5 border border-white/10 rounded-lg px-4 py-2" />
+              </div>
+              <SecretField provider="google_oauth_client" label="OAuth client secret (stored in the OS keychain)" placeholder="GOCSPX-…" has={google?.has_client_secret} onchange={() => refreshGoogle()} />
+              <SecretField provider="google_devknowledge" label="Developer Knowledge API key (stored in the OS keychain)" placeholder="AIza…" has={google?.has_dev_key} onchange={() => refreshGoogle()} />
+              <details class="glass-panel p-4 bg-white/5 text-sm text-gray-300">
+                <summary class="cursor-pointer font-medium">One-time setup in Google Cloud Console</summary>
+                <ol class="list-decimal ml-5 mt-2 space-y-1">
+                  <li>Create or pick a project, then enable the <strong>Gmail API</strong>, <strong>Google Drive API</strong> and <strong>Developer Knowledge API</strong>.</li>
+                  <li>OAuth consent screen: <em>External</em>, add yourself as a test user.</li>
+                  <li>Credentials → Create credentials → <strong>OAuth client ID</strong> → type <strong>Desktop app</strong>. Paste its client ID above and its secret into the keychain field.</li>
+                  <li>Credentials → Create credentials → <strong>API key</strong>, restricted to the Developer Knowledge API. Paste it into the key field.</li>
+                  <li>Tick the services, turn on <em>Use Google services</em>, <strong>Save</strong>, then <strong>Connect Google account</strong>.</li>
+                </ol>
+                <p class="mt-2">Plain API keys can't read your mail or files; Gmail and Drive always need the Connect step.</p>
+              </details>
             </div>
           </div>
 

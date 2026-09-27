@@ -51,6 +51,14 @@ pub struct AppState {
     /// Document name of the current conversation's archive (reset by
     /// `chat_reset`).
     pub conversation_doc: Mutex<Option<String>>,
+    /// Recent phone sends (`phone.max_per_hour`).
+    pub phone_limit: crate::phone::RateLimiter,
+    /// Ollama / kb-core outage tracking (`phone.service_down_minutes`).
+    pub phone_watch: crate::phone::DownWatch,
+    /// Google access token (in memory) and sign-in lock.
+    pub google: crate::google::GoogleSession,
+    /// Running side tasks (tool-less AI jobs beside the chat).
+    pub tasks: crate::ai::tasks::TaskRegistry,
 }
 
 impl AppState {
@@ -90,6 +98,10 @@ impl AppState {
             history: Mutex::new(crate::system::history::History::default()),
             ops: crate::ops::OpsState::load(crate::ops::default_path()?),
             conversation_doc: Mutex::new(None),
+            phone_limit: crate::phone::RateLimiter::default(),
+            phone_watch: crate::phone::DownWatch::default(),
+            google: crate::google::GoogleSession::default(),
+            tasks: crate::ai::tasks::TaskRegistry::default(),
         })
     }
 

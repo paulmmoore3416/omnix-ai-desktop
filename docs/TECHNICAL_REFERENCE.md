@@ -144,7 +144,7 @@ All commands return `AppResult<T>`; errors arrive as `{kind, message}` (§10). A
 | `chat_send` | `message`, `onEvent: Channel<UiEvent>` | `()` | Streams §6 events; resolves when the turn ends. Triggers background fact capture when enabled |
 | `chat_cancel` | — | `()` | Stops between stream events / before the next tool |
 | `chat_reset` | — | `()` | Clears history (refused while a turn runs) |
-| `process_command` | `command` | `string` | Slash commands: `/execute`, `/file read\|list\|write`, `/monitor` (`/search` 🚧) |
+| `process_command` | `command` | `string` | Slash commands: `/execute`, `/file read\|list\|write`, `/monitor`, `/remember <text> [#tag…]`, `/recall [query]`, `/search <query>` |
 
 ### Execution and audit
 
@@ -238,6 +238,15 @@ All commands return `AppResult<T>`; errors arrive as `{kind, message}` (§10). A
 |---|---|---|---|
 | `voice_transcribe` | raw WAV body | `string` | Speaches `/v1/audio/transcriptions` |
 | `voice_speak` | `text` | WAV bytes | Piper subprocess, audited (`tts`) |
+
+### Phone
+
+| Command | Arguments | Returns | Notes |
+|---|---|---|---|
+| `phone_test` | `channel` (`sms` \| `call`) | `string` | Fixed test text/call to `phone.to_number`; audited (`phone_sms`/`phone_call`) |
+
+Rules use the phone through alert `phone` (`sms`/`call`), the `text` / `call` actions and `ai_report.text_me`; the
+agent's `create_schedule` / `create_alert` tools accept the same fields (confirmed natively).
 
 Still 🚧 (`not_implemented`): `test_integration`.
 
@@ -354,7 +363,10 @@ File: `~/.config/omnix/settings.json`. Unknown fields are ignored and missing fi
 | `recall_min_score` | `0.4` | 0–1 (kb-core calibrated relevance) |
 | `auto_capture` | `false` | §8; enabling requires native confirmation |
 | `archive_conversations` | `true` | §8 conversation archive |
-| `max_memory_size`, `auto_summarize`, `retention_days`, `enable_semantic_search` | `1000`, `false`, `90`, `true` | Reserved / planned |
+| `max_memory_size` | `1000` | Active-memory limit (0 = unlimited). Saves (`/remember`, the `remember` tool, the Knowledge view, fact capture) are refused when it is reached; nothing is deleted. Enforced when the service reports a count (kb-core `/health`) |
+| `auto_summarize` | `false` | On **Clear**, the chat model summarizes the conversation (≥ 2 user messages, user/assistant text only) and saves it as a `conversation-summary` memory with `source: assistant`. Enabling it is confirmed natively |
+| `retention_days` | `0` | Archived transcripts (`conversations` collection) older than this are deleted 2 min after start and then daily (audited as `memory_retention`); 0 = forever. Memories and documents are never pruned by age. Turning it on or shortening it is confirmed natively |
+| `enable_semantic_search` | `true` | Off = every search (auto-recall, `/recall`, `/search`, Knowledge view, `search_memory`) is sent with `mode: keyword` |
 
 ### `security`
 
@@ -382,6 +394,21 @@ File: `~/.config/omnix/settings.json`. Unknown fields are ignored and missing fi
 | `piper_path` / `tts_voice` | `"piper"` / `"en_US-lessac-medium"` | Voice must be an absolute `.onnx` path in practice |
 | `tts_engine` | `"piper"` | |
 | `wake_word`, `continuous_listening` | `"omnix"`, `false` | Not used: voice is push-to-talk only |
+
+### `phone`
+
+| Key | Default | Notes |
+|---|---|---|
+| `enabled` | `false` | Enabling it, or changing a number or the SID while on, is confirmed natively. Works in local-only mode (the one exception) |
+| `account_sid` | `""` | `AC` + 32 hex digits |
+| `from_number` / `to_number` | `""` | E.164 (`+` and country code). `to_number` is the only recipient |
+| `max_per_hour` | `10` | Texts + calls per rolling hour (1–60) |
+| `approval_wait_secs` | `60` | Text when a native approval dialog is still open after this long (0 = off, ≤ 600). Content-free. Only fires below `security.confirmation_timeout_secs` (default 60, so raise that to use it) |
+| `long_job_minutes` | `5` | Text when a model download, or a rule's command / AI report, took at least this long (0 = off) |
+| `alerts_by_severity` | `true` | Alerts with no `phone` of their own: call for critical (temperature, GPU temperature, disk), text for the rest |
+| `service_down_minutes` | `10` | Text when Ollama or kb-core has been unreachable this long, once per outage, and when it's back (0 = off). Probed once a minute, independent of alert rules |
+
+The Twilio auth token is in the keychain as `twilio`.
 
 ### Others
 
@@ -418,7 +445,7 @@ File: `~/.config/omnix/settings.json`. Unknown fields are ignored and missing fi
 | Field | Values |
 |---|---|
 | `source` | `user`, `llm_tool` |
-| `action` | `exec`, `read_file`, `list_directory`, `write_file`, `kill_process`, `settings_change`, `mcp_start`, `mcp_call`, `tts`, `memory_save`, `memory_capture`, `memory_export`, `memory_import`, `kb_delete`, `model_load`, `model_unload`, `model_pull`, `model_delete`, `cleanup`, `ops_create`, `ops_approve` |
+| `action` | `exec`, `read_file`, `list_directory`, `write_file`, `kill_process`, `settings_change`, `mcp_start`, `mcp_call`, `tts`, `memory_save`, `memory_capture`, `memory_retention`, `phone_sms`, `phone_call`, `memory_export`, `memory_import`, `kb_delete`, `model_load`, `model_unload`, `model_pull`, `model_delete`, `cleanup`, `ops_create`, `ops_approve` |
 | `tier` | `read_only`, `mutating`, `privileged`, `denied` |
 | `decision` | `allowed`, `denied`, `not_approved`, `failed` |
 | `confirmation` | `not_required`, `approved`, `declined`, `timed_out`, `skipped`, `pre_approved` (unattended run of a signed rule; `detail` names the rule) |

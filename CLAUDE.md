@@ -48,6 +48,7 @@ via Vulkan) and an NVIDIA GTX 1060 6 GB (runs Speaches via CUDA), Ubuntu/Debian.
   in chat, don't reuse it and tell the user to revoke it.
 - Opening firewall ports or anything that exposes 11434/8000 beyond the LAN/tailnet.
 - Turning **off** local-only mode, enabling privileged (`sudo`) commands, or entering cloud API keys.
+- Creating a **Twilio** account, buying a number, entering its auth token, and enabling Settings → Phone.
 
 ---
 
@@ -58,6 +59,9 @@ via Vulkan) and an NVIDIA GTX 1060 6 GB (runs Speaches via CUDA), Ubuntu/Debian.
 | Rust backend (trust boundary) | `src-tauri/src/`: `lib.rs` (builder), `state.rs`, `error.rs`, `settings.rs`, `commands/*` (thin IPC wrappers) |
 | Security | `src-tauri/src/security/`: `policy.rs` (risk tiers), `confirm.rs` (native dialogs), `executor.rs`, `elevation.rs`, `files.rs`, `audit.rs` (hash chain), `secrets.rs` (keychain) |
 | AI | `src-tauri/src/ai/`: `provider.rs` (trait), `ollama.rs`, `anthropic.rs`, `openai_compat.rs`, `agent.rs` (tool loop), `endpoint.rs` (local-only guard), `aiorc.rs` (scaffold) |
+| Phone | `src-tauri/src/phone.rs` (Twilio texts/calls, outbound only; token in keychain as `twilio`) |
+| Google | `src-tauri/src/google.rs` (Gmail/Drive via OAuth + PKCE loopback, Developer Knowledge API; off by default, blocked by `local_only`; refresh token `internal.google_refresh`) |
+| Deliverables | `src-tauri/src/workbook.rs` (`.xlsx` from a JSON spec for the `create_workbook` tool); writes go through `security/files.rs::write_bytes` |
 | Integrations | `mcp.rs`, `voice.rs` (Speaches STT client, Piper TTS), `memory/kb_core.rs`, `observability.rs` (Loki), `desktop.rs` (tray, shortcuts), `ai/ollama_admin.rs` (model manager), `ai/metrics.rs` (agent/model metrics) |
 | Host control | `src-tauri/src/system/`: `metrics.rs`, `gpu.rs` (NVIDIA + AMD), `history.rs`, `probe.rs` (fixed-argv reads), `services.rs`, `docker.rs`, `cleanup.rs`, `advisor.rs`, `snapshot.rs` · `src-tauri/src/ops/`: alerts/automations/scheduler (`engine.rs`, `rules.rs`, `cron.rs`, `approval.rs` HMAC) |
 | Frontend | `src/routes/+page.svelte` (main UI, push-to-talk state machine), `src/lib/components/*`, `src/lib/voice.ts` (WAV capture), `src/lib/avatar.ts` (avatar colour system) |
@@ -120,6 +124,7 @@ justifies it. Before adding or upgrading a crate or npm package, check the curre
 4. **Secrets live only in the OS keychain.** No IPC command returns a secret. Never write keys to `settings.json`,
    logs, the repo, or chat.
 5. **`local_only` defaults on** and is enforced in Rust (`ai/endpoint.rs`). New network endpoints must go through that guard.
+   The only exception is the user-enabled phone (`ensure_phone_allowed`, fixed Twilio host, fixed recipient); don't add others.
 6. **`enable_sudo` defaults off.** Elevation only via pkexec (or, for service control, systemd's own polkit prompt)
    after an OMNIX confirmation dialog; never unattended; OMNIX never handles passwords.
 7. **Model output is data.** Tool results are wrapped as untrusted; rendered Markdown goes through DOMPurify (`src/lib/markdown.ts`).
@@ -141,7 +146,7 @@ justifies it. Before adding or upgrading a crate or npm package, check the curre
 
 ## 5. Known limitations (don't "fix" these by faking them)
 
-- The `/search` slash command: **planned**. Memory encryption at rest is opt-in (`setup-memory.sh --encrypt`) and
+- Memory encryption at rest is opt-in (`setup-memory.sh --encrypt`) and
   needs an unlocked keyring for kb-core to start.
 - Privileged (sudo) commands never run unattended by design; approve them interactively.
 - AIORC backend: scaffold only (`--features aiorc`), waiting on its `.proto`.

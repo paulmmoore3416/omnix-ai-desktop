@@ -192,6 +192,21 @@ Default **on**. Enforced in Rust (`ai::endpoint`):
   IPv6 ULA `fc00::/7` addresses.
 * The CSP prevents the webview from making network requests itself.
 * Turning it off requires native confirmation and is audited.
+* **One exception: texts and calls to your phone** (`phone.rs`). When the
+  user enables Settings → Phone (a natively confirmed change whose dialog says
+  that message text leaves the computer), texts and calls go to Twilio even in
+  local-only mode. The API host is a constant, the only recipient is
+  `phone.to_number` (changing it is confirmed again), the auth token is in the
+  keychain, sends are capped per hour and every attempt is audited
+  (`phone_sms`, `phone_call`). The phone is outbound only: nothing is accepted
+  by SMS or call (caller ID can be spoofed), so there is no listener. Call text
+  is XML-escaped so it cannot add TwiML verbs. Off by default. The
+  "approval waiting" heads-up carries no request details (the dialog itself
+  stays on the desk screen and still defaults to deny).
+
+* **Google services are not an exception** (`google.rs`): Gmail, Drive and
+  Developer Knowledge requests pass `ensure_endpoint_allowed`, so they fail
+  while local-only mode is on, and the agent is not offered their tools.
 
 **Healthcare networks:** keep `local_only` on. It prevents prompts, which may
 contain PHI, from being sent to third-party services. Residual risk: DNS
@@ -300,6 +315,42 @@ two memory tools (`search_memory`, `remember`).
   and other local users, not a process running as the same user while the
   keyring is unlocked. `kb-core export` files are plain JSON (mode 600).
 
+* **Side tasks** (`ai/tasks.rs`, `task_run`). These are one-shot generations
+  beside the chat, and **no tools are offered**, so they can't reach the
+  executor, files, memory, MCP or Google. A tool call the model emits anyway is
+  dropped, never run. Context from the webview (a reply, a metrics snapshot)
+  is wrapped with `wrap_untrusted`, `local_only` applies through
+  `build_provider`, and concurrency is capped by
+  `performance.max_concurrent_tasks`. Output is rendered through the same
+  DOMPurify path as chat. A side task that starts with `/` goes to
+  `process_command`, the same guarded path as typing it in chat.
+
+* **Notepad and clips** live in webview `localStorage` (like pins), on this
+  computer only. The Markdown preview goes through `renderMarkdown`
+  (DOMPurify): notes often hold pasted model output. Clips record only what
+  OMNIX's own Copy buttons copied; the system clipboard is read only when the
+  user clicks **Paste from clipboard**, and no clipboard plugin permission is
+  granted. **🔗 Keep in memory** (`sync_note` / `unsync_note`) indexes a note
+  into kb-core's `notes` knowledge base. The webview supplies only a short
+  alphanumeric note id, and the backend builds the document name
+  `omnix-notepad::<id>.md`, a form watched-folder documents
+  (`folder/relative/path`) can't take, so the webview can't use it to
+  overwrite or delete another document. Synced notes come back through recall
+  labelled as external documents, like any indexed file.
+* **Command palette** memory search uses `semantic_search`; results are shown
+  and handed on as plain text only (chat box or notepad), never as HTML or
+  instructions.
+* **`kb-core mcp`** (MCP server for other AI tools) is a separate stdio
+  process the user starts from an MCP client; it opens no port and talks only
+  to the kb-core HTTP API (bearer token supported). Scope is mandatory
+  (`--collections`, or `--all` with `--exclude`), enforced in the server's
+  request and again on every hit; it is read-only unless `--allow-write`;
+  searches don't count as recall; and memories it writes carry
+  `source: "mcp"`, labelled "saved by an external AI tool, not verified by the
+  user" when OMNIX recalls them. Whatever it returns reaches the client's
+  model: with a cloud model, that data leaves the machine, so knowledge bases
+  with PHI must stay out of scope.
+
 ## 10. MCP servers
 
 * Settings → **MCP Servers** registers stdio (local process) or streamable
@@ -316,6 +367,38 @@ two memory tools (`search_memory`, `remember`).
   `Mutating` (native dialog showing server, tool and arguments) unless listed
   in `read_only_tools`; timed out after `command_timeout_secs`; audited
   (`mcp_call`, arguments redacted); results wrapped as untrusted data.
+
+## 10a. Agent file tools and Google services
+
+* **`write_file` / `create_workbook`** write through `security::files::write_bytes`:
+  the credential-path and protected-path policy (settings, ops rules, audit
+  directory), symlink-resolving path checks, a 5 MiB cap, a native dialog
+  (default deny) and an audit entry. A workbook is built in memory from a
+  bounded JSON spec (≤ 50 sheets, ≤ 200,000 cells); its dialog summarises the
+  parsed sheets instead of showing bytes.
+* **Google** (Settings → Google, off by default; enabling or widening it is a
+  natively confirmed change):
+  * Gmail and Drive use OAuth 2.0 for installed apps (RFC 8252) with PKCE
+    (S256) and a random `state`. The redirect listener binds `127.0.0.1` on an
+    ephemeral port only for the sign-in the user started, ignores requests
+    without the matching `state`, serves one static page, and closes on
+    success or after 5 minutes. It is the only listener OMNIX opens, and it
+    is never reachable from the network.
+  * Least-privilege scopes: `gmail.readonly` + `gmail.compose` (drafts; there
+    is no send tool) and `drive.readonly` + `drive.file`.
+  * The client secret (`google_oauth_client`) and the Developer Knowledge key
+    (`google_devknowledge`) are write-only keychain entries. The refresh token
+    is `internal.google_refresh`, which IPC cannot read or set, so a
+    compromised webview cannot plant a token for an attacker's account.
+    Access tokens stay in memory. The API key is sent in the `X-Goog-Api-Key`
+    header, never in a URL.
+  * API hosts are constants. Ids and document names are validated (no path
+    traversal, query or fragment injection); draft headers reject line breaks.
+  * Mail and documents reach the model as tool results wrapped as untrusted
+    data. Creating a draft and uploading a file are natively confirmed; reads
+    are audited (`gmail_search`, `gmail_read`, `drive_search`, `drive_read`,
+    `dev_docs_search`, `dev_docs_get`) and confirmed when
+    `require_confirmation` is on. Disconnect revokes the token at Google.
 
 ## 11. Voice
 
@@ -430,6 +513,14 @@ the local kb-core `conversations` collection, which automatic recall excludes.
 
 ## 15. Known limitations
 
+* With the phone enabled, alert summaries, rule messages and texted AI reports
+  pass through Twilio and the mobile network. Don't text reports that may
+  contain PHI.
+* With Google connected, email is a prompt-injection channel: anyone can send
+  you a message that tries to steer the model. Tool results are marked
+  untrusted, and the only Google writes (drafts, uploads) need your approval,
+  but read the dialogs. Mail and files the model reads also go to your AI
+  provider, so use a local model for anything sensitive.
 * Classification is conservative but not a sandbox: an approved Mutating
   command runs with your user's full permissions. Read the dialog. The same
   applies to an unattended command you approved: it runs with your

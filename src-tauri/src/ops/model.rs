@@ -199,6 +199,9 @@ pub struct Alert {
     /// Desktop notification when it fires.
     #[serde(default = "yes")]
     pub notify: bool,
+    /// Also text or call the owner's phone when it fires (Settings → Phone).
+    #[serde(default)]
+    pub phone: Option<crate::phone::PhoneChannel>,
     /// Minimum seconds between two firings.
     #[serde(default = "default_cooldown")]
     pub cooldown_secs: u64,
@@ -295,6 +298,19 @@ pub enum Action {
         /// Also index the report in long-term memory.
         #[serde(default = "default_report_save")]
         save_to_memory: bool,
+        /// Also text the report to the owner's phone.
+        #[serde(default)]
+        text_me: bool,
+    },
+    /// Text the owner's phone (the recipient is always `phone.to_number`).
+    Text {
+        /// Message.
+        message: String,
+    },
+    /// Call the owner's phone and read the message aloud.
+    Call {
+        /// Message.
+        message: String,
     },
 }
 
@@ -304,8 +320,24 @@ impl Action {
         match self {
             Action::Notify { title, .. } => format!("notify “{title}”"),
             Action::Command { command, .. } => format!("run `{command}`"),
-            Action::AiReport { prompt, .. } => {
-                format!("AI report: {}", prompt.chars().take(80).collect::<String>())
+            Action::AiReport {
+                prompt, text_me, ..
+            } => format!(
+                "AI report{}: {}",
+                if *text_me { " (texted to you)" } else { "" },
+                prompt.chars().take(80).collect::<String>()
+            ),
+            Action::Text { message } => {
+                format!(
+                    "text you “{}”",
+                    message.chars().take(80).collect::<String>()
+                )
+            }
+            Action::Call { message } => {
+                format!(
+                    "call you: “{}”",
+                    message.chars().take(80).collect::<String>()
+                )
             }
         }
     }

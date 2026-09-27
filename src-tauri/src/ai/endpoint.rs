@@ -32,6 +32,21 @@ pub fn ensure_provider_allowed(provider: &str, local_only: bool) -> AppResult<()
     Ok(())
 }
 
+/// The one exception to `local_only`: texts and calls to the owner's phone
+/// go to Twilio (a fixed host, see `crate::phone`) whenever the user has
+/// enabled the phone. Enabling it is a natively confirmed settings change
+/// whose dialog says the message text leaves the machine, so local-only
+/// mode is not weakened silently. Everything else stays local.
+pub fn ensure_phone_allowed(enabled: bool) -> AppResult<()> {
+    if enabled {
+        Ok(())
+    } else {
+        Err(AppError::InvalidInput(
+            "texts and calls are off: enable them in Settings → Phone".into(),
+        ))
+    }
+}
+
 /// Verify `url` points at a local/private host when `local_only` is on.
 pub async fn ensure_endpoint_allowed(url: &str, local_only: bool) -> AppResult<Url> {
     let u =
