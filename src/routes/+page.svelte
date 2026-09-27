@@ -857,7 +857,7 @@
   <aside class="w-64 glass-panel m-4 p-6 flex flex-col z-10 animate-slide-in-left">
     <div class="mb-8">
       <h1 class="text-3xl font-bold glow-text animate-glow-pulse">OMNIX</h1>
-      <p class="text-xs text-cosmic-cyan mt-1">v1.1.0</p>
+      <p class="text-xs text-cosmic-cyan mt-1">v1.2.0</p>
     </div>
 
     <button class="palette-btn mb-4" onclick={() => (paletteOpen = true)} title="Command palette: go anywhere, run actions, search memory">

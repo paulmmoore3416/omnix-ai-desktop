@@ -512,8 +512,16 @@ keyword-only for now (nothing is lost; it catches up by itself).
 
 ### 📚 Knowledge Bases
 
-Separate named knowledge bases are **planned**. Today everything lives in one store; use tags, categories and folders
-to organise it.
+Knowledge bases are separate named collections (for example `homelab`, `work`), so different parts of your life or work
+don't mix. Each card shows its memories, documents and chunks.
+
+- **➕ Create** a knowledge base with a name and an optional description.
+- **Add memories here** opens Memories with that knowledge base selected, so new memories and indexed documents go
+  into it. **Search it** opens Search limited to it.
+- **Delete** removes the knowledge base and everything in it, after a native confirmation. `default` can't be deleted.
+- Automatic recall before each reply searches all knowledge bases except the `conversations` archive. Duplicate merging
+  and contradiction checks stay inside one knowledge base.
+- From a terminal: `kb-core collections` lists them, and `kb-core ingest <folder> -c <name>` indexes a folder into one.
 
 ### 🔍 Search
 

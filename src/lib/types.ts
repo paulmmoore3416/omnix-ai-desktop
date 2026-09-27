@@ -227,6 +227,8 @@ export interface KnowledgeData {
   llmModel?: string | null;
   status?: string;
   embedError?: string | null;
+  /** kb-core's database is encrypted at rest; `null` when the service doesn't say. */
+  encrypted?: boolean | null;
   pendingEmbeddings?: number;
   superseded?: number;
   /** Merged/superseded memories whose model ruling the user hasn't checked. */

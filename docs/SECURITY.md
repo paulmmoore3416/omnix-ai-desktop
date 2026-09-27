@@ -157,7 +157,8 @@ Entries are fsync'd before the action result is returned.
 `verify_audit_log`) recomputes the chain and reports the first bad line.
 Editing, inserting or deleting any line except the last is detected.
 *Truncating the tail is not detectable from the file alone*; shipping the log
-to an external sink anchors it (planned: optional Loki export).
+to an external sink anchors it (optional Grafana Loki shipping, off by default; see
+§12).
 
 **Redaction.** Before writing, commands and details are scrubbed of
 OpenAI/Anthropic/xAI/Gemini/GitHub/Slack/AWS key patterns, `Bearer` tokens,

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-27
+
 ### Added
 - **Usage and ROI (Settings → Usage).** A local, content-free daily ledger (`usage.json`, mode 600) of turns,
   local vs cloud turns, prompt and output tokens, tool calls, recalled memories, time spent and turns per model,
@@ -27,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `deploy/docker-compose.yml` with Ollama, a one-shot model puller, Speaches and kb-core, plus an NVIDIA override
   and `deploy/init.sh` for the token and `.env`. Ports bind to 127.0.0.1 unless `OMNIX_BIND` is changed.
 - **Landing page** (`site/`, static, no external requests) and launch post drafts (`docs/marketing/`).
+- **List prices** from 2026 market research (`docs/PRICING.md`: LM Studio, Jan, AnythingLLM, TypingMind, BoltAI,
+  Msty, Raycast, Open WebUI, Tabnine). Lifetime Pro is $99 ($79 launch offer), BYOK is $10/month or $96/year, and
+  Enterprise Hardened is from $4,800/year for 20 seats plus $20/seat/month, with a hardening package from $2,500.
 - **Workspace notepad.** A resizable Markdown notepad under every Workspace tab: several notes, write / split /
   preview views (headings, tables, quotes, code, ☐/☑ task lists; sanitized like chat), a formatting toolbar,
   Ctrl+B/I and Ctrl+Enter to tick tasks, 🧹 Tidy (side task), copy, pin, and send to chat. **📝 Note** on replies,
@@ -96,6 +101,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Redaction test fixtures** in `audit.rs` are assembled at runtime, so secret scanners stop flagging them as
   leaked GitHub/AWS/OpenAI keys. They were never real credentials.
 - Agent metrics now record prompt tokens and whether a local model answered (feeds the usage ledger).
+- **Settings → Security shows whether memory is encrypted at rest** (from kb-core's `/stats`, new `encrypted` field
+  in `get_knowledge_data`) instead of a stale *Planned* badge; encryption is turned on with
+  `./scripts/setup-memory.sh --encrypt`. `USER_GUIDE.md` now documents knowledge bases (they were still described as
+  planned) and `SECURITY.md` points to the Loki shipping that already exists.
 - **Smoother live metrics.** The Live tab reads cheap host and GPU stats every 1.5 s (the full snapshot every
   10 s), plots the last 2 minutes as monotone curves placed by time that glide continuously, tweens the numbers and
   eases the bars. All sparklines now draw smooth curves that never overshoot the data.

@@ -8,9 +8,11 @@ license keys work. It is for the owner and anyone issuing licenses.
 | Edition | Price model | For | Covers |
 |---|---|---|---|
 | **Community** | free (no key) | trying OMNIX | Everything the app does today |
-| **Lifetime Pro** | one-time, $50–$100 | local power users | Advanced GPU monitoring and history, unlimited local memory, v1.x updates |
-| **BYOK** | subscription, $10–$15 / month | people who want the OMNIX workspace with cloud models | Everything in Pro while subscribed, plus cloud providers with the user's own API keys |
-| **Enterprise Hardened** | custom, outcome-based | firms that need air-gapped installs | Everything above, hardening review, custom support agreement, seat count |
+| **Lifetime Pro** | $99 one-time ($79 launch offer), 2 devices | local power users | Advanced GPU monitoring and history, unlimited local memory, v1.x updates |
+| **BYOK** | $10 / month or $96 / year | people who want the OMNIX workspace with cloud models | Everything in Pro while subscribed, plus cloud providers with the user's own API keys |
+| **Enterprise Hardened** | from $4,800 / year (up to 20 seats), then $20 / seat / month; hardening package from $2,500 | firms that need air-gapped installs | Everything above, hardening review, custom support agreement, seat count |
+
+Prices are set from 2026 market research. See [PRICING.md](PRICING.md) for comparables and rationale.
 
 **Status: informational.** The app verifies and shows the tier (Settings → License) but locks nothing behind it.
 `LicenseStatus.enforced` is always `false`. Gating would be a later, deliberate change: it would need tests, a

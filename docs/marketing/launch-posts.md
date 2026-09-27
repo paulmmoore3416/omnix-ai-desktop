@@ -1,6 +1,6 @@
 # Launch posts (drafts)
 
-Drafts for the v1.1.0 launch. Review before posting. OMNIX is **local-only by default**, and cloud providers are
+Drafts for the v1.2.0 launch. Review before posting. OMNIX is **local-only by default**, and cloud providers are
 opt-in. Claims below are worded to stay accurate with that.
 
 ## LinkedIn (professional / privacy)
@@ -16,7 +16,7 @@ between power and security.
 - 🧠 Persistent memory: a "Recent Memories" engine for long-term workflows.
 - 🛡️ Guardrails: every system action needs your approval and lands in a tamper-evident audit log.
 
-v1.1.0 is live today.
+v1.2.0 is live today.
 
 ## X (Twitter) thread (builder / tech)
 
@@ -27,9 +27,10 @@ v1.1.0 is live today.
 3. More than a chat box, it's a workspace. ✅ Situation briefs ✅ Recent memories ✅ Integrated dev tools
    ✅ Your own ROI dashboard.
 4. Privacy isn't a feature; it's a right. Local-only by default, keys in your OS keychain, offline licensing.
-   v1.1.0 out now. 🚀
+   v1.2.0 out now. 🚀
 
 ## Landing page
 
 A static page is in [`site/`](../../site/index.html): self-contained, no external requests, screenshots in
-`site/img/`. Set the final prices in the Pricing section before publishing.
+`site/img/`. It shows the list prices from [PRICING.md](../PRICING.md): Pro $99 ($79 launch offer), BYOK $10/mo or
+$96/yr, and Enterprise from $4,800/yr.
