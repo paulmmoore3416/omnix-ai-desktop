@@ -21,6 +21,19 @@ The database can be encrypted at rest with SQLCipher (whole file, page
 level, so FTS5 keeps working); the key lives in the OS keyring and is
 handed to every connection (see ``crypto.py``).
 
+Documents arrive through ``index_document``, called by the HTTP API, by
+``kb-core ingest``, and by folder sync. Sync and ingest read files through a
+knowledge connector (``connectors.py``: plain folders, Obsidian vaults, or
+allowlisted plugins), so this module only ever sees normalised text.
+
+SQL: every value is a bound parameter. SQLite cannot bind identifiers or
+PRAGMA arguments, so the few places that build statement text use only fixed
+fragments, ``placeholders(n)`` for ``IN`` lists, the ``UPDATABLE_COLUMNS``
+allowlist for ``UPDATE`` column names, ``%d`` for PRAGMA integers, and
+``crypto.key_pragma`` (64 hex characters or nothing) for the SQLCipher key.
+Each such statement carries a ``noqa: S608 - <reason>`` note, and a test
+fails on any that doesn't.
+
 Stored text is data. Nothing here executes, renders or follows it; the only
 place it meets a model is the extraction/contradiction prompts, which frame
 it explicitly as material to analyse.
